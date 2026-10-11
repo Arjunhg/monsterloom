@@ -1,0 +1,38 @@
+{
+  "name": "monsterloom",
+  "version": "1.0.0",
+  "description": "A spooky top-down survival game where you build your own monster from the body parts of your enemies. Evolve bizarre mutations, survive the night, and make it to dawn.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "_build": "tsc && vite build",
+    "build": "npm run _build",
+    "build:bundled": "cross-env RUNDOT_GAME_DISABLE_EMBEDDED_LIBS=true npm run _build",
+    "preview": "vite preview",
+    "test": "vitest --run",
+    "deploy": "npm run build && rundot deploy"
+  },
+  "keywords": [
+    "phaser",
+    "vite",
+    "typescript",
+    "game"
+  ],
+  "author": "",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "devDependencies": {
+    "@babel/parser": "^7.26.3",
+    "@types/node": "^24.3.0",
+    "cross-env": "^7.0.3",
+    "fast-check": "4.10.2",
+    "firebase": "^12.12.1",
+    "magic-string": "^0.30.11",
+    "typescript": "^5.9.2",
+    "vite": "^6.3.5",
+    "vitest": "5.0.3"
+  },
+  "dependencies": {
+    "@series-inc/rundot-game-sdk": "5.28.1",
+    "phaser": "3.90.0"
+  }
+}
