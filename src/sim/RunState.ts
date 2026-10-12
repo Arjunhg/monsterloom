@@ -59,6 +59,11 @@ export class EnemyStore {
   readonly aiDirY: Float32Array;
   readonly mergePartner: Int32Array;
   readonly mergeTimer: Float32Array;
+  /** Movement slow fraction 0..1 currently applied (Swamp Gut), and seconds left. */
+  readonly slowAmt: Float32Array;
+  readonly slowTimer: Float32Array;
+  /** Seconds the enemy is controlled by an ability (grabbed/hurled); AI skips steering while > 0. */
+  readonly stun: Float32Array;
 
   constructor(readonly capacity: number) {
     this.pool = new IdPool(capacity);
@@ -88,6 +93,9 @@ export class EnemyStore {
     this.aiDirY = f32();
     this.mergePartner = new Int32Array(capacity).fill(-1);
     this.mergeTimer = f32();
+    this.slowAmt = f32();
+    this.slowTimer = f32();
+    this.stun = f32();
   }
 
   get count(): number {
@@ -111,6 +119,7 @@ export class EnemyStore {
     this.hitFlash[id] = this.aiTimer[id] = this.aiDirX[id] = this.aiDirY[id] = 0;
     this.mergePartner[id] = -1;
     this.mergeTimer[id] = 0;
+    this.slowAmt[id] = this.slowTimer[id] = this.stun[id] = 0;
     return id;
   }
 
@@ -352,6 +361,8 @@ export interface OwnedPart {
   level: number;
   /** True once consumed by a mutation: ability stays active, sprite hidden. */
   merged: boolean;
+  /** Number of Rare bonuses applied; abilities add `rareBonus × rareBonuses` to level params. */
+  rareBonuses: number;
 }
 
 export interface RunState {
@@ -431,7 +442,7 @@ export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG):
     tokens: new TokenStore(TOKEN_CAPACITY),
     energy: { value: 0, levelUps: 0, pendingLevelUps: 0, pendingTokens: 0 },
     build: {
-      parts: new Map([[starterPartId(config), { level: 1, merged: false }]]),
+      parts: new Map([[starterPartId(config), { level: 1, merged: false, rareBonuses: 0 }]]),
       mutations: new Set(),
       banned: new Set(),
       rerolls: b.menu.rerolls,
@@ -484,7 +495,7 @@ export function resetRunState(state: RunState, seed?: number): void {
   state.energy.pendingTokens = 0;
 
   state.build.parts.clear();
-  state.build.parts.set(starterPartId(state.config), { level: 1, merged: false });
+  state.build.parts.set(starterPartId(state.config), { level: 1, merged: false, rareBonuses: 0 });
   state.build.mutations.clear();
   state.build.banned.clear();
   state.build.rerolls = b.menu.rerolls;
