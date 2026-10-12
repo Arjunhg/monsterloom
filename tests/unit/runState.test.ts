@@ -6,7 +6,7 @@ import { createRunState, resetRunState } from '../../src/sim/RunState';
 describe('RunState', () => {
   it('starts with only Blob Spit at level 1 and balance defaults', () => {
     const s = createRunState(42);
-    expect([...s.build.parts.entries()]).toEqual([['blob_spit', { level: 1, merged: false }]]);
+    expect([...s.build.parts.entries()]).toEqual([['blob_spit', { level: 1, merged: false, rareBonuses: 0 }]]);
     expect(s.seed).toBe(42);
     expect(s.player.hp).toBe(BALANCE.player.hp);
     expect(s.clock.duration).toBe(BALANCE.run.durationSec);
@@ -42,7 +42,7 @@ describe('RunState', () => {
     s.clock.elapsed = 100;
     s.stats.kills = 77;
     s.energy.value = 12;
-    s.build.parts.set('fangs', { level: 2, merged: false });
+    s.build.parts.set('fangs', { level: 2, merged: false, rareBonuses: 0 });
     s.build.banned.add('ribcage');
     s.events.push(EventType.levelUp, 1);
     s.paused = 'menu';
