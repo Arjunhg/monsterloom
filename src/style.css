@@ -1,6 +1,14 @@
-/* Global styles for the Phaser game */
+/* Global styles for Monster Mash Survivor */
 * {
   box-sizing: border-box;
+}
+
+/* Safe-area insets exposed for DOM overlays (the canvas is letterboxed by Scale.FIT). */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
 }
 
 html, body {
@@ -28,49 +36,24 @@ canvas {
   display: block;
 }
 
-/* HTML Dialog Styles */
-#dialog-overlay {
+/* Non-blocking landscape hint (Req 1.6). */
+#rotate-hint {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-#dialog-box {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
+  top: calc(var(--sat) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(20, 15, 46, 0.88);
+  color: #f4f1ff;
+  font: 600 14px "Trebuchet MS", "Segoe UI", Arial, sans-serif;
   text-align: center;
-  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-}
-
-#dialog-box p {
-  color: #333;
-  margin-bottom: 20px;
-  font-family: Arial, sans-serif;
-}
-
-#close-dialog-btn {
-  padding: 10px 20px;
-  background: #3498db;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-#close-dialog-btn:hover {
-  background: #2980b9;
-}
-
-/* Utility class to hide the dialog */
-#dialog-overlay.hidden {
+  pointer-events: none;
+  z-index: 1000;
   display: none;
+}
+
+#rotate-hint.visible {
+  display: block;
 }

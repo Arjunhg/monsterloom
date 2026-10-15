@@ -1,57 +1,83 @@
 import Phaser from 'phaser';
-import HelloWorldScene from './scenes/HelloWorldScene';
 import './style.css';
-import RundotGameAPI from "@series-inc/rundot-game-sdk/api";
+import { initSession } from './game/Session';
+import { getAudio } from './juice/AudioManager';
+import { GAME_HEIGHT, GAME_WIDTH, PALETTE } from './game/keys';
+import { installRotateHint } from './game/rotateHint';
+import type { PlatformService } from './platform/PlatformService';
+import { FakePlatform } from './platform/FakePlatform';
+import BootScene from './scenes/BootScene';
+import TitleScene from './scenes/TitleScene';
+import GameScene from './scenes/GameScene';
+import HudScene from './scenes/HudScene';
+import UpgradeScene from './scenes/UpgradeScene';
+import ResultsScene from './scenes/ResultsScene';
 
 let bootStep1Fired = false;
 
-RundotGameAPI.lifecycles.onPause(() => {
-  RundotGameAPI.analytics.recordCustomEvent('game_paused');
-});
-RundotGameAPI.lifecycles.onResume(() => {
-  RundotGameAPI.analytics.recordCustomEvent('game_resumed');
-});
-RundotGameAPI.lifecycles.onSleep(() => {
-  RundotGameAPI.analytics.recordCustomEvent('game_sleep');
-});
-RundotGameAPI.lifecycles.onQuit(() => {
-  RundotGameAPI.analytics.recordCustomEvent('game_quit');
-});
+/** Lifecycle analytics (template pattern, routed through PlatformService). */
+function wireLifecycleAnalytics(platform: PlatformService): void {
+  // PlatformService.onPause covers both host pause and sleep.
+  platform.onPause(() => platform.track('game_paused'));
+  platform.onResume(() => platform.track('game_resumed'));
+}
+
+/**
+ * RUN SDK platform, falling back to FakePlatform when the SDK is unavailable
+ * (e.g. plain `npm run dev` outside the host). The SDK module is imported
+ * dynamically so a failing import is also caught.
+ */
+async function createPlatform(): Promise<PlatformService> {
+  try {
+    const { RundotPlatform } = await import('./platform/RundotPlatform');
+    const platform = new RundotPlatform();
+    wireLifecycleAnalytics(platform);
+    return platform;
+  } catch (err) {
+    console.warn('[Main] RUN SDK unavailable, using FakePlatform:', err);
+    const platform = new FakePlatform({ echoLogs: true });
+    wireLifecycleAnalytics(platform);
+    return platform;
+  }
+}
 
 async function bootstrap(): Promise<void> {
+  installRotateHint();
+  const platform = await createPlatform();
+  initSession(platform);
+  // Create the audio manager now so its gesture listeners exist before the first tap/key.
+  getAudio();
+
   try {
-    // Create Phaser game
     const config: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
-      width: 720,
-      height: 1560,
-      parent: "app",
-      backgroundColor: "#2c3e50",
-      scene: HelloWorldScene,
-      physics: {
-        default: "arcade",
-        arcade: {
-          gravity: { x: 0, y: 0 },
-          debug: false,
-        },
-      },
+      width: GAME_WIDTH,
+      height: GAME_HEIGHT,
+      parent: 'app',
+      backgroundColor: PALETTE.night,
+      pixelArt: true,
+      roundPixels: true,
+      input: { activePointers: 2 },
+      scene: [BootScene, TitleScene, GameScene, HudScene, UpgradeScene, ResultsScene],
       scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
       },
     };
 
-    new Phaser.Game(config);
-    RundotGameAPI.analytics.recordCustomEvent('game_loaded');
+    const game = new Phaser.Game(config);
+    // Dev-only handle for local smoke tests and console debugging.
+    if (import.meta.env.DEV) (window as unknown as { __mmsGame?: Phaser.Game }).__mmsGame = game;
+    platform.track('game_loaded');
     if (!bootStep1Fired) {
       bootStep1Fired = true;
-      RundotGameAPI.analytics.trackFunnelStep(1, 'game_loaded', 'boot', 1);
+      platform.funnel(1, 'game_loaded', 'boot', 1);
     }
-    RundotGameAPI.log("[Main] Phaser game created");
+    platform.log('[Main] Phaser game created');
   } catch (error) {
-    console.error("[Main] Bootstrap error:", error);
+    console.error('[Main] Bootstrap error:', error);
+    platform.track('bootstrap_failed', { error: String(error) });
   }
 }
 
-// Start the app
-bootstrap();
+void bootstrap();
