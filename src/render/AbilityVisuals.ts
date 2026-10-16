@@ -4,6 +4,7 @@
  * - Swamp Gut puddles (translucent green circles)
  * - Bat Wings dash trail (fading body ghosts while dashing)
  * - Beholder Gaze beam (thick additive glowing line, Req 20.3)
+ * - Werewolf Frenzy shockwave ring, Bone Storm burst flash, Bog Kraken tentacles
  *
  * Sim positions are offset by (renderPlayer − simPlayer) so effects attached to
  * the player follow the interpolated sprite without jitter.
@@ -12,6 +13,9 @@ import Phaser from 'phaser';
 import { DEPTH, TEX } from '../game/keys';
 import { batWingsDashing } from '../sim/abilities/batWings';
 import { beholderBeam } from '../sim/abilities/beholderGaze';
+import { bogKrakenGrabs, bogKrakenView } from '../sim/abilities/bogKraken';
+import { boneStormPulse } from '../sim/abilities/boneStorm';
+import { werewolfShockwave } from '../sim/abilities/werewolfFrenzy';
 import { ribcageBonePositions } from '../sim/abilities/ribcage';
 import { swampGutPuddle } from '../sim/abilities/swampGut';
 import type { SimContext } from '../sim/SimContext';
@@ -19,6 +23,9 @@ import type { SimContext } from '../sim/SimContext';
 const GHOST_COUNT = 6;
 const GHOST_FADE_PER_SEC = 3;
 const GHOST_INTERVAL_MS = 30;
+/** Segments per Bog Kraken tentacle line. */
+const TENTACLE_SEGMENTS = 10;
+const TENTACLE_WOBBLE_PX = 10;
 
 export class AbilityVisuals {
   /** Normal-blend layer (puddles). */
@@ -30,6 +37,7 @@ export class AbilityVisuals {
   private ghostNext = 0;
   private lastGhostAt = -Infinity;
   private readonly bonePos: number[] = [];
+  private readonly grabPos: number[] = [];
   private readonly ribIdx: number;
   private readonly swampIdx: number;
   private readonly batIdx: number;
@@ -131,6 +139,67 @@ export class AbilityVisuals {
       glow.lineBetween(x1, y1, x2, y2);
       glow.fillStyle(0xfff0ff, 0.8);
       glow.fillCircle(x2, y2, beam.width * 0.4);
+    }
+
+    this.renderMutationEffects(rx, ry, timeMs);
+  }
+
+  /** Werewolf shockwave ring, Bone Storm flash, Bog Kraken tentacles. */
+  private renderMutationEffects(rx: number, ry: number, timeMs: number): void {
+    const g = this.g;
+    const glow = this.glow;
+
+    // Werewolf Frenzy: expanding orange-red ring at the dash end point.
+    const wave = werewolfShockwave(this.ctx);
+    if (wave.active) {
+      const a = 1 - wave.t01;
+      const r = Math.max(4, wave.radius);
+      glow.fillStyle(0xff5a1f, 0.18 * a);
+      glow.fillCircle(wave.x, wave.y, r);
+      glow.lineStyle(10 * a + 2, 0xff3b1f, 0.75 * a);
+      glow.strokeCircle(wave.x, wave.y, r);
+      glow.lineStyle(3, 0xffc27a, 0.9 * a);
+      glow.strokeCircle(wave.x, wave.y, r * 0.92);
+    }
+
+    // Bone Storm: brief bone-white flash around the player on each burst.
+    const flash = boneStormPulse(this.ctx);
+    if (flash.active) {
+      const a = 1 - flash.t01;
+      glow.fillStyle(0xfff6dc, 0.35 * a);
+      glow.fillCircle(rx, ry, 30 + 50 * flash.t01);
+      glow.lineStyle(4, 0xffffff, 0.7 * a);
+      glow.strokeCircle(rx, ry, 40 + 70 * flash.t01);
+    }
+
+    // Bog Kraken: wobbly dark-green tentacles from the anchor to each grabbed enemy.
+    const n = bogKrakenGrabs(this.ctx, this.grabPos);
+    if (n > 0) {
+      const kv = bogKrakenView(this.ctx);
+      const a = 1 - kv.t01 * 0.7;
+      for (let i = 0; i < n; i++) {
+        const tx = this.grabPos[2 * i];
+        const ty = this.grabPos[2 * i + 1];
+        const dx = tx - kv.x;
+        const dy = ty - kv.y;
+        const len = Math.hypot(dx, dy);
+        const nx = len > 1e-6 ? -dy / len : 0;
+        const ny = len > 1e-6 ? dx / len : 0;
+        for (let pass = 0; pass < 2; pass++) {
+          if (pass === 0) g.lineStyle(9, 0x1f4a1c, 0.85 * a);
+          else g.lineStyle(4, 0x4f8f3a, 0.9 * a);
+          g.beginPath();
+          g.moveTo(kv.x, kv.y);
+          for (let k = 1; k <= TENTACLE_SEGMENTS; k++) {
+            const t = k / TENTACLE_SEGMENTS;
+            const w = Math.sin(t * Math.PI) * TENTACLE_WOBBLE_PX * Math.sin(timeMs * 0.02 + t * 7 + i * 2);
+            g.lineTo(kv.x + dx * t + nx * w, kv.y + dy * t + ny * w);
+          }
+          g.strokePath();
+        }
+        g.fillStyle(0x1f4a1c, 0.9 * a);
+        g.fillCircle(tx, ty, 6);
+      }
     }
   }
 

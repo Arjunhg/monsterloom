@@ -17,9 +17,16 @@ import { PALETTE, TEX } from '../game/keys';
 
 type Grid = readonly string[];
 type Pal = Readonly<Record<string, number>>;
+/** Optional per-char alpha (translucent sprites such as the slime); missing chars are opaque. */
+type Alpha = Readonly<Record<string, number>>;
 
 /** Outline colour used around enemies (1 px dark). */
 const OUTLINE = 0x0b0716;
+
+/** Builds a symmetric grid from its left halves (each row is mirrored onto the right). */
+function mirror(half: Grid): Grid {
+  return half.map((row) => row + row.split('').reverse().join(''));
+}
 
 // ---------------------------------------------------------------------------
 // Pixel maps
@@ -104,9 +111,63 @@ const MUTATION_GRIDS: Record<string, { grid: Grid; pal: Pal }> = {
     ],
     pal: { P: 0xb45ad8, W: 0xf4f1ff, R: 0xff4f6a, K: 0x120a24, H: 0xffffff },
   },
+  // Snarling wolf head: pointed ears, gold eyes, open jaw with fangs.
+  mutation_werewolf: {
+    grid: mirror([
+      'D.....',
+      'DD....',
+      'DFD...',
+      'DFFDDD',
+      'DFFFFF',
+      'FFYKFF',
+      'FFFFFL',
+      '.FFFLN',
+      '.FRWRR',
+      '..FRRR',
+      '..FWRR',
+      '...FFF',
+    ]),
+    pal: { F: 0x7a5a3a, D: 0x4a3220, L: 0xc8a878, Y: 0xffd23d, K: 0x120a24, W: 0xfffbe8, R: 0xa01c28, N: 0x1a1010 },
+  },
+  // Spiky skull with glowing sockets inside a ring of bones.
+  mutation_bonestorm: {
+    grid: mirror([
+      '..OO.B',
+      '.O...B',
+      'O..BBB',
+      'O.BBBB',
+      'O.BKKB',
+      'O.BKRB',
+      'O.BBBK',
+      'O..BBB',
+      'O..BKB',
+      '.O..BB',
+      '..OO..',
+      '....OO',
+    ]),
+    pal: { B: 0xf2ead2, O: 0xc9bf9e, K: 0x1a1426, R: 0xff3fc8 },
+  },
+  // Green kraken: domed head, yellow eyes, curling tentacles.
+  mutation_bogkraken: {
+    grid: mirror([
+      '...GGG',
+      '..GLGG',
+      '.GLGGG',
+      '.GYKGG',
+      '.GGGGG',
+      '..GDGG',
+      '.GG.GG',
+      'G.G.G.',
+      'GS.GS.',
+      'G..G.G',
+      '.G.G.G',
+      'GG..G.',
+    ]),
+    pal: { G: 0x5f9a3a, L: 0xa8d84a, D: 0x2f5a22, Y: 0xffe14a, K: 0x120a24, S: 0xd8f0a0 },
+  },
 };
 
-const ENEMY_GRIDS: Record<string, { grid: Grid; pal: Pal; px: number }> = {
+const ENEMY_GRIDS: Record<string, { grid: Grid; pal: Pal; px: number; alpha?: Alpha }> = {
   // Green zombie, arms out.
   enemy_shambler: {
     px: 4,
@@ -158,6 +219,133 @@ const ENEMY_GRIDS: Record<string, { grid: Grid; pal: Pal; px: number }> = {
     ],
     pal: { W: 0xefe9d8, K: 0x1a1426, R: 0xff3fc8, A: 0x7d8aa6, S: 0xc9d3e8, H: 0xd9a63a },
   },
+  // ---- v2 ----------------------------------------------------------------
+  // Purple bat, wings spread, red eyes and a tiny fang (28×16).
+  enemy_bat: {
+    px: 2,
+    grid: [
+      'D....B..B....D',
+      'DD...BBBB...DD',
+      'DMD.BRBBRB.DMD',
+      'DMMDBBBBBBDMMD',
+      'DMMMBBWWBBMMMD',
+      'DMMMMBBBBMMMMD',
+      'DMDMMDBBDMMDMD',
+      'D..D.D..D.D..D',
+    ],
+    pal: { D: 0x3b2160, M: 0x8a4fd8, B: 0x5a2f8a, R: 0xff3b3b, W: 0xfffbe8 },
+  },
+  // Translucent green blob with big eyes (36×30).
+  enemy_slime: {
+    px: 3,
+    grid: [
+      '....GGGG....',
+      '..GGLLGGGG..',
+      '.GGLGGGGGGG.',
+      '.GLGGGGGGGG.',
+      'GGGWWGGWWGGG',
+      'GGGWKGGWKGGG',
+      'GGGGGGGGGGGG',
+      'GGGGDDDDGGGG',
+      'DGGGGGGGGGGD',
+      '.DDDDDDDDDD.',
+    ],
+    pal: { G: 0x5fd35a, L: 0xd8ffc0, D: 0x2f8a3a, W: 0xffffff, K: 0x12301a },
+    alpha: { G: 0.78, D: 0.85, L: 0.9 },
+  },
+  // Pale blue sheet ghost with a wavy hem (33×36).
+  enemy_ghost: {
+    px: 3,
+    grid: [
+      '...WWWWW...',
+      '..WWWWWWW..',
+      '.WWWWWWWWW.',
+      '.WKKWWWKKW.',
+      '.WKKWWWKKW.',
+      'WWWWWKWWWWW',
+      'WWWWKKKWWWW',
+      'WWWWWWWWWWW',
+      'SWWWWWWWWWS',
+      'WWWWWWWWWWW',
+      'WSWWSWSWWSW',
+      'W.WW.W.WW.W',
+    ],
+    pal: { W: 0xdcefff, S: 0x9cc4e8, K: 0x1a2a4a },
+  },
+  // Pointy-hat witch: green face, purple robe, staff with a glowing orb (36×45).
+  enemy_witch: {
+    px: 3,
+    grid: [
+      '......H.....',
+      '.....HH.....',
+      '.....HHH....',
+      '....HHHH....',
+      '...HHHHHH...',
+      '...BBBBBB...',
+      'HHHHHHHHHHHH',
+      '...FFFFFF...',
+      '...FYFFYF...',
+      '...FFNFFF..O',
+      '....FFFF...S',
+      '..RRRRRRRR.S',
+      '.RRRDRRDRRRS',
+      '.RRRRDDRRRRS',
+      'RRRDRRRRDRRS',
+    ],
+    pal: {
+      H: 0x2a1640,
+      B: 0xc86bff,
+      F: 0x7fd35a,
+      Y: 0xffe14a,
+      N: 0x4f9a3a,
+      O: 0x3ff0ff,
+      S: 0x8a5a2a,
+      R: 0x6a2fa0,
+      D: 0x3f1a66,
+    },
+  },
+  // "The Night Mother": dark-violet moth/spider queen, eyespot wings, gold crown,
+  // a cluster of red eyes and spindly legs (96×96).
+  enemy_boss: {
+    px: 4,
+    grid: mirror([
+      '......G.....',
+      '.......G..C.',
+      'VV......G.CC',
+      'VPVV.....BCC',
+      'VPPPVV..BBBB',
+      'VPLLPPV.BRBR',
+      'VPLRLPPVRBRB',
+      'VPLLLPPVBBRB',
+      'VPPLPPPVGBFB',
+      'VVPPPPVGBBHB',
+      '.VPPPPVGBHHB',
+      '.VPLLPVGBBHB',
+      '..VPLPVGBHHB',
+      '..VPPVG.BBHB',
+      '...VVG..BHHB',
+      '....G...BBHB',
+      '...G...G.BHB',
+      '..G...G..BBB',
+      '.G...G....BB',
+      'G...G.....BB',
+      '...G.......B',
+      '..G.........',
+      '.G..........',
+      'G...........',
+    ]),
+    pal: {
+      V: 0x3a1a5c,
+      P: 0x6a2fa0,
+      L: 0xc86bff,
+      B: 0x2e1648,
+      H: 0x6a3a9a,
+      R: 0xff3b3b,
+      C: 0xffd23d,
+      G: 0x8a6ab0,
+      F: 0xf2ead2,
+    },
+  },
 };
 
 const GENERIC_ENEMY = {
@@ -190,14 +378,53 @@ function gridSize(grid: Grid): { w: number; h: number } {
 }
 
 /** Draws filled cells of a pixel map; '.' and unknown chars are transparent. */
-function drawGrid(g: Phaser.GameObjects.Graphics, grid: Grid, pal: Pal, px: number, ox: number, oy: number): void {
+function drawGrid(
+  g: Phaser.GameObjects.Graphics,
+  grid: Grid,
+  pal: Pal,
+  px: number,
+  ox: number,
+  oy: number,
+  alpha?: Alpha,
+): void {
   for (let y = 0; y < grid.length; y++) {
     const row = grid[y] ?? '';
     for (let x = 0; x < row.length; x++) {
-      const c = pal[row.charAt(x)];
+      const ch = row.charAt(x);
+      const c = pal[ch];
       if (c === undefined) continue;
-      g.fillStyle(c, 1);
+      g.fillStyle(c, alpha?.[ch] ?? 1);
       g.fillRect(ox + x * px, oy + y * px, px, px);
+    }
+  }
+}
+
+/**
+ * Outline drawn only on the outer edges of filled cells (no fill underneath),
+ * so translucent sprites don't get darkened by the silhouette.
+ */
+function drawEdgeOutline(
+  g: Phaser.GameObjects.Graphics,
+  grid: Grid,
+  pal: Pal,
+  px: number,
+  ox: number,
+  oy: number,
+  color: number,
+  d: number,
+): void {
+  const filled = (x: number, y: number): boolean => pal[(grid[y] ?? '').charAt(x)] !== undefined;
+  g.fillStyle(color, 1);
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y] ?? '';
+    for (let x = 0; x < row.length; x++) {
+      if (!filled(x, y)) continue;
+      const cx = ox + x * px;
+      const cy = oy + y * px;
+      if (!filled(x - 1, y)) g.fillRect(cx - d, cy - d, d, px + 2 * d);
+      if (!filled(x + 1, y)) g.fillRect(cx + px, cy - d, d, px + 2 * d);
+      if (!filled(x, y - 1)) g.fillRect(cx - d, cy - d, px + 2 * d, d);
+      if (!filled(x, y + 1)) g.fillRect(cx - d, cy + px, px + 2 * d, d);
     }
   }
 }
@@ -248,6 +475,7 @@ function bakeGrid(
   px: number,
   out: string[],
   edge?: { color: number; width: number },
+  alpha?: Alpha,
 ): void {
   const { w, h } = gridSize(grid);
   const pad = edge ? edge.width : 0;
@@ -257,8 +485,11 @@ function bakeGrid(
     w * px + pad * 2,
     h * px + pad * 2,
     (g) => {
-      if (edge) drawSilhouette(g, grid, pal, px, pad, pad, edge.color, edge.width);
-      drawGrid(g, grid, pal, px, pad, pad);
+      if (edge) {
+        if (alpha) drawEdgeOutline(g, grid, pal, px, pad, pad, edge.color, edge.width);
+        else drawSilhouette(g, grid, pal, px, pad, pad, edge.color, edge.width);
+      }
+      drawGrid(g, grid, pal, px, pad, pad, alpha);
     },
     out,
   );
@@ -303,8 +534,8 @@ export function generateTextures(scene: Phaser.Scene): string[] {
 
   // Enemies: distinct silhouettes with 1 px dark outline.
   for (const e of GAME_CONFIG.enemies) {
-    const art = ENEMY_GRIDS[e.sprite] ?? GENERIC_ENEMY;
-    bakeGrid(scene, e.sprite, art.grid, art.pal, art.px, out, { color: OUTLINE, width: 1 });
+    const art: { grid: Grid; pal: Pal; px: number; alpha?: Alpha } = ENEMY_GRIDS[e.sprite] ?? GENERIC_ENEMY;
+    bakeGrid(scene, e.sprite, art.grid, art.pal, art.px, out, { color: OUTLINE, width: 1 }, art.alpha);
   }
 
   // Energy orb: cyan glowing dot, 14 px.

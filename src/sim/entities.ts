@@ -42,6 +42,8 @@ export function spawnEnemy(state: RunState, typeIndex: number, x: number, y: num
   e.contactDmg[id] = type.contactDmg;
   e.energyValue[id] = type.energy;
   if (!type.canMerge) e.flags[id] |= ENEMY_FLAG.NO_MERGE;
+  if (type.noSeparation) e.flags[id] |= ENEMY_FLAG.NO_SEP;
+  if (type.boss) e.flags[id] |= ENEMY_FLAG.BOSS | ENEMY_FLAG.NO_MERGE;
   return id;
 }
 

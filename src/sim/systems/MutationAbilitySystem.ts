@@ -5,7 +5,10 @@
  * owns, looks up the runtime registered for its abilityId and ticks it.
  * Body-part abilities (including merged parts) are still driven by AbilitySystem.
  */
-import { beholderGaze, BEHOLDER_ABILITY_ID } from '../abilities/beholderGaze';
+import { beholderGaze, BEHOLDER_ABILITY_ID, resetMutationAbilities } from '../abilities/beholderGaze';
+import { BOG_KRAKEN_ABILITY_ID, bogKraken, resetBogKraken } from '../abilities/bogKraken';
+import { BONE_STORM_ABILITY_ID, boneStorm, resetBoneStorm } from '../abilities/boneStorm';
+import { resetWerewolfFrenzy, WEREWOLF_ABILITY_ID, werewolfFrenzy } from '../abilities/werewolfFrenzy';
 import type { SimContext, System } from '../SimContext';
 
 export interface MutationAbilityRuntime {
@@ -24,6 +27,17 @@ export function getMutationAbility(abilityId: string): MutationAbilityRuntime | 
 }
 
 registerMutationAbility(BEHOLDER_ABILITY_ID, beholderGaze);
+registerMutationAbility(WEREWOLF_ABILITY_ID, werewolfFrenzy);
+registerMutationAbility(BONE_STORM_ABILITY_ID, boneStorm);
+registerMutationAbility(BOG_KRAKEN_ABILITY_ID, bogKraken);
+
+/** Clears every built-in mutation ability's per-ctx state in place (call on restart). */
+export function resetAllMutationAbilities(ctx: SimContext): void {
+  resetMutationAbilities(ctx);
+  resetWerewolfFrenzy(ctx);
+  resetBoneStorm(ctx);
+  resetBogKraken(ctx);
+}
 
 export const mutationAbilitySystem: System = (ctx, dt) => {
   const state = ctx.state;

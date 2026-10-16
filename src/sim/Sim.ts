@@ -10,7 +10,6 @@
  */
 import { GAME_CONFIG, type GameConfig } from '../data';
 import { resetAbilityState } from './abilities/types';
-import { resetMutationAbilities } from './abilities/beholderGaze';
 import { FixedStepLoop } from './FixedStepLoop';
 import { createRunState, resetRunState, type PauseKind, type RunState } from './RunState';
 import { createSimContext, type SimContext, type System } from './SimContext';
@@ -21,15 +20,21 @@ import { damageSystem } from './systems/DamageSystem';
 import { enemyAISystem } from './systems/EnemyAISystem';
 import { energySystem } from './systems/EnergySystem';
 import { mergeSystem } from './systems/MergeSystem';
-import { mutationAbilitySystem } from './systems/MutationAbilitySystem';
+import { mutationAbilitySystem, resetAllMutationAbilities } from './systems/MutationAbilitySystem';
 import { orbSystem } from './systems/OrbSystem';
 import { createPlayerSystem } from './systems/PlayerSystem';
 import { projectileSystem, resetProjectileHits } from './systems/ProjectileSystem';
 import { separationSystem } from './systems/SeparationSystem';
 import { spatialIndexSystem } from './systems/SpatialIndexSystem';
 import { spawnDirector } from './systems/SpawnDirector';
+import { installEliteTokenDrops, tokenSystem } from './systems/TokenSystem';
+import { installV2Behaviours } from './behaviours';
 // Side-effect import: installs the mutation candidate/applier hooks into UpgradeSystem.
 import './upgrades/MutationSystem';
+
+// v2 content hooks (idempotent): bat/ghost/slime/witch steering, slime split, elite token drops.
+installV2Behaviours();
+installEliteTokenDrops();
 
 export const SIM_STEP = 1 / 60;
 
@@ -88,6 +93,7 @@ export class Sim {
       damageSystem, // 10
       contactSystem, // 11
       orbSystem, // 12
+      tokenSystem, // 12b (Upgrade_Tokens from Elites)
       energySystem, // 13
     ];
   }
@@ -124,7 +130,7 @@ export class Sim {
     resetRunState(this.state, seed);
     resetAbilityState(this.ctx);
     resetProjectileHits(this.ctx);
-    resetMutationAbilities(this.ctx);
+    resetAllMutationAbilities(this.ctx);
     this.ctx.damage.clear();
     this.ctx.enemyHash.clear();
     this.loop.reset();

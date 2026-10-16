@@ -387,7 +387,10 @@ export interface RunState {
     bans: number;
   };
   director: {
+    /** Horde lane credits (types without `special`). */
     credits: number;
+    /** Special lane credits (bats, slimes, ghosts, witches), earned on top of the horde lane. */
+    specialCredits: number;
     quadrantBag: number[];
     stageIdx: number;
     introduced: Set<string>;
@@ -448,7 +451,7 @@ export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG):
       rerolls: b.menu.rerolls,
       bans: b.menu.bans,
     },
-    director: { credits: 0, quadrantBag: [], stageIdx: 0, introduced: new Set(), swarmIdx: 0 },
+    director: { credits: 0, specialCredits: 0, quadrantBag: [], stageIdx: 0, introduced: new Set(), swarmIdx: 0 },
     stats: { kills: 0, damageDealt: 0, dpsWindow: new Float32Array(DPS_WINDOW_SEC) },
     events: new EventBus(),
   };
@@ -502,6 +505,7 @@ export function resetRunState(state: RunState, seed?: number): void {
   state.build.bans = b.menu.bans;
 
   state.director.credits = 0;
+  state.director.specialCredits = 0;
   state.director.quadrantBag.length = 0;
   state.director.stageIdx = 0;
   state.director.introduced.clear();

@@ -4,6 +4,7 @@ import type { EnemyType } from './enemies';
 import type { Stage } from './stages';
 import { ABILITY_KINDS, NON_DAMAGE_FIELDS, type BodyPartDef } from './bodyParts';
 import type { MutationRecipe } from './mutations';
+import type { SwarmEventDef } from './swarmEvents';
 
 export interface GameConfig {
   balance: Balance;
@@ -11,6 +12,8 @@ export interface GameConfig {
   stages: Stage[];
   bodyParts: BodyPartDef[];
   mutations: MutationRecipe[];
+  /** v2 scripted swarm events. Optional so v1-shaped configs (tests) still type-check. */
+  swarmEvents?: SwarmEventDef[];
 }
 
 export interface ValidateOptions {
@@ -20,6 +23,7 @@ export interface ValidateOptions {
 
 const MAX_STAGE_GAP_SEC = 120;
 const MIN_V2_RECIPES = 4;
+const MIN_V2_SWARMS = 2;
 const MIN_V1_PARTS = 6;
 const MIN_V1_ENEMIES = 3;
 
@@ -140,6 +144,46 @@ export function validateConfig(cfg: GameConfig, opts: ValidateOptions = {}): str
     if (mutations.length < MIN_V2_RECIPES) {
       errors.push(`v2 needs >= ${MIN_V2_RECIPES} mutation recipes (got ${mutations.length})`);
     }
+
+    // Every stage must land before the boss arrives (Req 22.2, 24.1).
+    const bossAt = balance.run.durationSec - balance.run.bossLeadSec;
+    for (const s of stages) {
+      if (s.atSec >= bossAt) errors.push(`stage at ${s.atSec}s starts at or after the boss (${bossAt}s)`);
+    }
+
+    // Swarm events (Req 23.1).
+    const swarms = cfg.swarmEvents ?? [];
+    if (swarms.length < MIN_V2_SWARMS) errors.push(`v2 needs >= ${MIN_V2_SWARMS} swarm events (got ${swarms.length})`);
+    if (!swarms.some((s) => s.kind === 'ring')) errors.push('v2 needs at least one ring swarm event');
+    if (!swarms.some((s) => s.kind === 'stampede')) errors.push('v2 needs at least one stampede swarm event');
+    for (const s of swarms) {
+      if (!enemyIds.has(s.typeId)) errors.push(`swarm event at ${s.atSec}s uses unknown enemy type '${s.typeId}'`);
+      if (!(s.count > 0)) errors.push(`swarm event at ${s.atSec}s needs count > 0`);
+      if (!(s.atSec >= 2 && s.atSec < balance.run.durationSec)) {
+        errors.push(`swarm event at ${s.atSec}s must be within [2, duration)`);
+      }
+    }
+
+    // Exactly one boss, never in the stage pool, never mergeable (Req 21.4, 24.1).
+    const bosses = enemies.filter((e) => e.boss);
+    if (bosses.length !== 1) errors.push(`v2 needs exactly one boss enemy type (got ${bosses.length})`);
+    for (const b of bosses) {
+      if (b.canMerge) errors.push(`boss '${b.id}' must have canMerge: false`);
+      if (stages.some((s) => s.addTypes.includes(b.id))) errors.push(`boss '${b.id}' must not be in a spawn stage`);
+    }
+    // Ghost behaviour must skip separation and merging (Req 22.4).
+    for (const g of enemies.filter((e) => e.behaviour === 'ghost')) {
+      if (g.canMerge || !g.noSeparation) errors.push(`ghost '${g.id}' must have canMerge: false and noSeparation: true`);
+    }
+    // Every v2 behaviour must be introduced by some stage.
+    const staged = new Set(stages.flatMap((s) => s.addTypes));
+    for (const beh of ['bat', 'ghost', 'slime', 'witch'] as const) {
+      if (!enemies.some((e) => e.behaviour === beh && staged.has(e.id))) {
+        errors.push(`no stage introduces an enemy with behaviour '${beh}'`);
+      }
+    }
+    if (!(balance.elite.maxChance >= 0 && balance.elite.maxChance <= 1)) errors.push('elite.maxChance must be in [0, 1]');
+    if (!(balance.elite.hpMult >= 1)) errors.push('elite.hpMult must be >= 1');
   }
 
   return errors;
