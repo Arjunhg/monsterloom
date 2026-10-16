@@ -6,10 +6,27 @@
  */
 import Phaser from 'phaser';
 import { DEPTH, PALETTE, TEX } from '../game/keys';
-import { PROJECTILE_SIDE, type RunState } from '../sim/RunState';
+import { ENEMY_FLAG, PROJECTILE_SIDE, type RunState } from '../sim/RunState';
 
 /** Entities further than this outside the camera view are hidden. */
 const CULL_MARGIN = 200;
+/** Elite glow (Req 22.9): additive gold copy behind the sprite, pulsing. */
+const ELITE_GLOW_COLOR = 0xffd23d;
+const ELITE_GLOW_SCALE = 1.3;
+/** Ghost translucency (base alpha ± flicker). */
+const GHOST_ALPHA = 0.6;
+const GHOST_FLICKER = 0.12;
+/** Bat aiState values (sim contract): 0 approach, 1 telegraph, 2 charging. */
+const BAT_TELEGRAPH = 1;
+const BAT_CHARGING = 2;
+/** Tint per merge tier (index = tier; 0 = untinted). Redder as tier grows so it reads at a glance. */
+const TIER_TINT: readonly number[] = [0xffffff, 0xffe2dc, 0xffaaa0, 0xd8605a];
+
+const TOKEN_GLOW_COLOR = 0xffd23d;
+
+const KIND_OTHER = 0;
+const KIND_BAT = 1;
+const KIND_GHOST = 2;
 /** Enemy display width ≈ radius × this (before merge-tier scale). */
 const ENEMY_SIZE_PER_RADIUS = 2.4;
 const PROJ_SIZE_PER_RADIUS = 2.6;
@@ -68,13 +85,17 @@ function lerp(a: number, b: number, t: number): number {
 
 export class EntityRenderer {
   private readonly enemies: ImagePool;
+  private readonly eliteGlow: ImagePool;
   private readonly playerProj: ImagePool;
   private readonly enemyProj: ImagePool;
   private readonly orbs: ImagePool;
   private readonly tokens: ImagePool;
+  private readonly tokenGlow: ImagePool;
   /** Per enemy type: resolved texture key and base scale (computed lazily). */
   private readonly enemyTex: string[] = [];
   private readonly enemyBase: number[] = [];
+  /** Per enemy type: KIND_* render behaviour. */
+  private readonly enemyKind: number[];
   private readonly view = new Phaser.Geom.Rectangle();
 
   constructor(
@@ -83,10 +104,15 @@ export class EntityRenderer {
   ) {
     const s = state;
     this.enemies = new ImagePool(scene, s.enemies.capacity, TEX.particle, DEPTH.enemy);
+    this.eliteGlow = new ImagePool(scene, s.enemies.capacity, TEX.particle, DEPTH.enemy - 0.5, true);
+    this.enemyKind = s.config.enemies.map((d) =>
+      d.behaviour === 'bat' ? KIND_BAT : d.behaviour === 'ghost' || d.noSeparation ? KIND_GHOST : KIND_OTHER,
+    );
     this.playerProj = new ImagePool(scene, s.projectiles.capacity, TEX.projectilePlayer, DEPTH.projectile);
     this.enemyProj = new ImagePool(scene, s.projectiles.capacity, TEX.projectileEnemy, DEPTH.projectile + 1);
     this.orbs = new ImagePool(scene, s.orbs.capacity, TEX.orb, DEPTH.orb, true);
     this.tokens = new ImagePool(scene, s.tokens.capacity, TEX.token, DEPTH.orb + 1);
+    this.tokenGlow = new ImagePool(scene, s.tokens.capacity, TEX.orb, DEPTH.orb + 0.5, true);
   }
 
   /** Syncs every pooled image with the sim. `alpha` = interpolation factor, `timeMs` for pulses. */
@@ -95,7 +121,7 @@ export class EntityRenderer {
     const wv = cam.worldView;
     const v = this.view;
     v.setTo(wv.x - CULL_MARGIN, wv.y - CULL_MARGIN, wv.width + CULL_MARGIN * 2, wv.height + CULL_MARGIN * 2);
-    this.renderEnemies(alpha);
+    this.renderEnemies(alpha, timeMs);
     this.renderProjectiles(alpha);
     this.renderOrbs(timeMs);
     this.renderTokens(timeMs);
@@ -103,10 +129,12 @@ export class EntityRenderer {
 
   destroy(): void {
     this.enemies.destroy();
+    this.eliteGlow.destroy();
     this.playerProj.destroy();
     this.enemyProj.destroy();
     this.orbs.destroy();
     this.tokens.destroy();
+    this.tokenGlow.destroy();
   }
 
   private inView(x: number, y: number): boolean {
@@ -125,15 +153,19 @@ export class EntityRenderer {
     this.enemyBase[typeIndex] = ((def?.radius ?? 12) * ENEMY_SIZE_PER_RADIUS) / w;
   }
 
-  private renderEnemies(alpha: number): void {
+  private renderEnemies(alpha: number, timeMs: number): void {
     const e = this.state.enemies;
     const px = this.state.player.x;
     const pool = this.enemies;
+    const glows = this.eliteGlow;
     pool.begin();
+    glows.begin();
+    // One shared pulse for all elites (0..1).
+    const elitePulse = 0.5 + 0.5 * Math.sin(timeMs * 0.006);
     const ids = e.pool.activeIds;
     for (let k = 0; k < e.count; k++) {
       const id = ids[k];
-      const x = lerp(e.prevX[id], e.x[id], alpha);
+      let x = lerp(e.prevX[id], e.x[id], alpha);
       const y = lerp(e.prevY[id], e.y[id], alpha);
       if (!this.inView(x, y)) continue;
       const img = pool.next();
@@ -143,14 +175,57 @@ export class EntityRenderer {
       if (this.enemyTex[type] === undefined || this.enemyTex[type] === '__WHITE') this.resolveEnemyType(type);
       const tex = this.enemyTex[type];
       if (img.texture.key !== tex) img.setTexture(tex);
+      const scale = e.scale[id] * this.enemyBase[type];
+      const kind = this.enemyKind[type] ?? KIND_OTHER;
+      const flags = e.flags[id];
+
+      // Orientation: bats face their locked direction while telegraphing / charging.
+      let rotation = 0;
+      let flip = px < x;
+      if (kind === KIND_BAT) {
+        const ai = e.aiState[id];
+        if (ai === BAT_CHARGING && (e.vx[id] !== 0 || e.vy[id] !== 0)) {
+          rotation = Math.atan2(e.vy[id], e.vx[id]) + Math.PI / 2;
+          flip = false;
+        } else if (ai === BAT_TELEGRAPH && (e.aiDirX[id] !== 0 || e.aiDirY[id] !== 0)) {
+          rotation = Math.atan2(e.aiDirY[id], e.aiDirX[id]) + Math.PI / 2;
+          flip = false;
+          x += Math.sin(timeMs * 0.09 + id) * 1.5; // wind-up shiver
+        }
+      } else if ((flags & ENEMY_FLAG.BOSS) !== 0) {
+        flip = false; // symmetric art; flipping would only jitter
+      }
+
       img.setPosition(x, y);
-      img.setScale(e.scale[id] * this.enemyBase[type]);
-      img.setFlipX(px < x);
+      img.setScale(scale);
+      img.setRotation(rotation);
+      img.setFlipX(flip);
+      img.setAlpha(kind === KIND_GHOST ? GHOST_ALPHA + GHOST_FLICKER * Math.sin(timeMs * 0.005 + id * 1.7) : 1);
       if (e.hitFlash[id] > 0) img.setTintFill(0xffffff); // Req 18.1
-      else if (img.isTinted) img.clearTint();
+      else {
+        const tint = TIER_TINT[Math.min(e.tier[id], TIER_TINT.length - 1)] ?? 0xffffff;
+        if (tint !== 0xffffff) img.setTint(tint);
+        else if (img.isTinted) img.clearTint();
+      }
       img.setVisible(true);
+
+      // Elite glow (Req 22.9): additive gold silhouette behind the sprite.
+      if ((flags & ENEMY_FLAG.ELITE) !== 0) {
+        const glow = glows.next();
+        if (glow) {
+          if (glow.texture.key !== tex) glow.setTexture(tex);
+          glow.setTintFill(ELITE_GLOW_COLOR);
+          glow.setPosition(x, y);
+          glow.setScale(scale * (ELITE_GLOW_SCALE + 0.08 * elitePulse));
+          glow.setRotation(rotation);
+          glow.setFlipX(flip);
+          glow.setAlpha(0.45 + 0.4 * elitePulse);
+          glow.setVisible(true);
+        }
+      }
     }
     pool.end();
+    glows.end();
   }
 
   private renderProjectiles(alpha: number): void {
@@ -211,6 +286,7 @@ export class EntityRenderer {
     const t = this.state.tokens;
     const pool = this.tokens;
     pool.begin();
+    this.tokenGlow.begin();
     const ids = t.pool.activeIds;
     for (let k = 0; k < t.count; k++) {
       const id = ids[k];
@@ -220,10 +296,23 @@ export class EntityRenderer {
       const img = pool.next();
       if (!img) break;
       if (img.texture.key === '__WHITE' && this.scene.textures.exists(TEX.token)) img.setTexture(TEX.token);
-      img.setPosition(x, y + Math.sin(timeMs * 0.004 + id) * 4);
-      img.setScale(1 + 0.06 * Math.sin(timeMs * 0.006 + id));
+      const by = y + Math.sin(timeMs * 0.004 + id) * 4;
+      const pulse = Math.sin(timeMs * 0.006 + id);
+      img.setPosition(x, by);
+      img.setScale(1.4 * (1 + 0.06 * pulse));
       img.setVisible(true);
+      // Soft gold halo so tokens stand out from energy orbs.
+      const glow = this.tokenGlow.next();
+      if (glow) {
+        if (glow.texture.key === '__WHITE' && this.scene.textures.exists(TEX.orb)) glow.setTexture(TEX.orb);
+        glow.setTint(TOKEN_GLOW_COLOR);
+        glow.setPosition(x, by);
+        glow.setScale(3.2 + 0.4 * pulse);
+        glow.setAlpha(0.55 + 0.25 * pulse);
+        glow.setVisible(true);
+      }
     }
     pool.end();
+    this.tokenGlow.end();
   }
 }

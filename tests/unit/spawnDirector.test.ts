@@ -74,7 +74,9 @@ describe('SpawnDirector', () => {
       }
     }
     expect(introCount).toBe(1);
-    expect(state.director.stageIdx).toBe(GAME_CONFIG.stages.length);
+    // Only the stages whose start time has passed are applied.
+    const applied = GAME_CONFIG.stages.filter((s) => s.atSec <= state.clock.elapsed).length;
+    expect(state.director.stageIdx).toBe(applied);
     expect(types.has(knight)).toBe(true);
   });
 
@@ -123,7 +125,10 @@ describe('SpawnDirector', () => {
       expect(state.enemies.count).toBeLessThanOrEqual(10);
     }
     expect(state.enemies.count).toBe(10);
-    expect(state.director.credits).toBeLessThanOrEqual(BALANCE.credits.maxCarry + 3);
+    // Carry cap = maxCarry + the most expensive type currently in the pool.
+    const pool = GAME_CONFIG.stages.filter((s) => s.atSec <= state.clock.elapsed).flatMap((s) => s.addTypes);
+    const maxCost = Math.max(...GAME_CONFIG.enemies.filter((e) => pool.includes(e.id)).map((e) => e.threatCost));
+    expect(state.director.credits).toBeLessThanOrEqual(BALANCE.credits.maxCarry + maxCost);
   });
 
   it('does nothing after the run ended', () => {

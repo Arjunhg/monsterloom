@@ -24,4 +24,41 @@ export const MUTATIONS: MutationRecipe[] = [
     abilityId: 'beholder_gaze',
     spriteKey: 'mutation_beholder',
   },
+  // ---- v2 ----------------------------------------------------------------
+  {
+    id: 'werewolf_frenzy',
+    name: 'Werewolf Frenzy',
+    description: 'Fangs and wings fuse: every dash ends in a howling bite shockwave.',
+    requires: [
+      { partId: 'fangs', minLevel: 3 },
+      { partId: 'bat_wings', minLevel: 2 },
+    ],
+    consumes: ['fangs', 'bat_wings'],
+    abilityId: 'werewolf_frenzy',
+    spriteKey: 'mutation_werewolf',
+  },
+  {
+    id: 'bone_storm',
+    name: 'Bone Storm',
+    description: 'Your orbiting bones periodically burst outward as a ring of shards.',
+    requires: [
+      { partId: 'ribcage', minLevel: 3 },
+      { partId: 'blob_spit', minLevel: 3 },
+    ],
+    consumes: ['ribcage'],
+    abilityId: 'bone_storm',
+    spriteKey: 'mutation_bonestorm',
+  },
+  {
+    id: 'bog_kraken',
+    name: 'Bog Kraken',
+    description: 'Toxic puddles sprout tentacles that drag enemies under.',
+    requires: [
+      { partId: 'swamp_gut', minLevel: 3 },
+      { partId: 'tentacle', minLevel: 2 },
+    ],
+    consumes: ['swamp_gut'],
+    abilityId: 'bog_kraken',
+    spriteKey: 'mutation_bogkraken',
+  },
 ];

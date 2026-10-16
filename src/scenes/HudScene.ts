@@ -536,8 +536,13 @@ export default class HudScene extends Phaser.Scene {
     if (type === EventType.partGained || type === EventType.partLevelled || type === EventType.mutation) {
       this.rebuildPartRow();
     } else if (type === EventType.behaviourIntroduced) {
-      const enemy = this.session.sim.state.config.enemies[a];
-      if (enemy) this.showBanner(`${enemy.name} appears!`);
+      const cfg = this.session.sim.state.config;
+      const enemy = cfg.enemies[a];
+      if (enemy) {
+        // Prefer the stage's authored banner (Req 22.1); fall back to the monster name.
+        const stage = cfg.stages.find((s) => s.banner && s.addTypes.includes(enemy.id));
+        this.showBanner(stage?.banner ?? `${enemy.name} appears!`);
+      }
     }
   }
 

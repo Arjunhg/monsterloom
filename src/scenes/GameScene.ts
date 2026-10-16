@@ -20,7 +20,9 @@ import { InputAdapter } from '../render/InputAdapter';
 import { JoystickView } from '../render/JoystickView';
 import { PlayerRenderer } from '../render/PlayerRenderer';
 import { SkyRenderer } from '../render/SkyRenderer';
+import { TelegraphRenderer } from '../render/TelegraphRenderer';
 import { spawnEnemy } from '../sim/entities';
+import { applyDevLoadout, readDevLoadout, type DevLoadout } from '../game/devLoadout';
 import { EventType, type EventCode } from '../sim/EventBus';
 import type { PlatformSubscription } from '../platform/PlatformService';
 
@@ -43,12 +45,14 @@ export default class GameScene extends Phaser.Scene {
   private session!: Session;
   private adapter!: InputAdapter;
   private entities!: EntityRenderer;
+  private telegraphs!: TelegraphRenderer;
   private player!: PlayerRenderer;
   private sky!: SkyRenderer;
   private abilities!: AbilityVisuals;
   private joystick!: JoystickView;
   private juice!: JuiceSystem;
 
+  private devLoadout: DevLoadout | null = null;
   private resultsTimerMs = -1;
   private goingToResults = false;
   private upgradeLaunchGuard = 0;
@@ -80,8 +84,13 @@ export default class GameScene extends Phaser.Scene {
     cam.setBackgroundColor(PALETTE.night);
     cam.setZoom(1);
 
+    // Dev-only test loadout (?mutation=…, ?parts=…, ?god=1, ?t=…). Null in production.
+    this.devLoadout = readDevLoadout();
+    if (this.devLoadout) applyDevLoadout(state, this.devLoadout);
+
     this.sky = new SkyRenderer(this, state);
     this.entities = new EntityRenderer(this, state);
+    this.telegraphs = new TelegraphRenderer(this, state);
     this.abilities = new AbilityVisuals(this, sim.ctx);
     this.player = new PlayerRenderer(this, state);
     this.joystick = new JoystickView(this, session.input.joystickRadius);
@@ -132,6 +141,7 @@ export default class GameScene extends Phaser.Scene {
 
     // 2. Dev stress mode (?stress=N): keep N enemies alive, player invincible.
     if (session.flags.stress > 0 && state.outcome === null && state.paused === false) this.applyStress();
+    if (this.devLoadout?.god) state.player.hp = state.player.maxHp;
 
     // 3. Simulate.
     const alpha = sim.advance(delta / 1000);
@@ -148,6 +158,7 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.centerOn(rx, ry);
     this.sky.render(time, delta);
     this.entities.render(alpha, time);
+    this.telegraphs.render(alpha, time);
     this.abilities.render(rx, ry, time, delta, this.player.bodyScale);
     this.player.sync(rx, ry, time);
     this.joystick.render(session.input.joystick);
@@ -340,6 +351,7 @@ export default class GameScene extends Phaser.Scene {
     this.adapter?.destroy();
     this.juice?.destroy();
     this.entities?.destroy();
+    this.telegraphs?.destroy();
     this.abilities?.destroy();
     this.player?.destroy();
     this.sky?.destroy();

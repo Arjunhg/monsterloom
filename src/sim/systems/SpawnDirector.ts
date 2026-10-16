@@ -8,14 +8,24 @@
  *     once (director.stageIdx = number of applied stages). Its types join the
  *     pool; the first time a type id is added, behaviourIntroduced fires with
  *     the type index (5.5, 22.1). Pool = union of addTypes of stages[0..stageIdx).
- *  3. Credits: credits += creditRate(elapsed) · dt, then capped at
- *     balance.credits.maxCarry + (max threatCost in pool). The cap bounds the
- *     carry-over so that spawned cost over any window ≤ ∫creditRate + cap (5.3, 5.4).
+ *  3. Credits, in two independent lanes (steps 3–5 run once per lane):
+ *     - horde lane (types without `special`): director.credits += creditRate(t)·dt
+ *     - special lane (bats, slimes, ghosts, witches): director.specialCredits +=
+ *       creditRate(t)·specialRate·dt
+ *     Each lane is capped at maxCarry + (max threatCost in that lane's pool), so
+ *     spawned cost per window ≤ ∫(rate) + cap per lane (5.3, 5.4). The lanes keep
+ *     expensive v2 monsters from starving the regular horde.
  *  4. Spawning: while credits ≥ cheapest cost in pool and active < maxActive,
  *     pick a type uniformly (weight 1) from the whole pool via rng.spawn. If it
  *     costs more than the current credits it stays pending and the director
  *     saves up (otherwise cheap types would always consume credits first and
  *     costlier types would never appear). Once affordable: spend, spawn (5.6).
+ *     Types with behaviourParams.groupSize > 1 (bats) save up for the whole
+ *     group (min(groupSize, free slots) × cost, bounded by the carry cap) and
+ *     spawn it clustered within ~CLUSTER_RADIUS px; threatCost is charged per member.
+ *  5. Elites (22.7, 22.9): every credit-funded spawn (each group member) of a
+ *     non-boss type rolls rng.spawn < eliteChance(elapsed) → makeElite(). No roll
+ *     (and no RNG draw) while the chance is 0, i.e. before elite.startSec.
  *
  * Position (5.1, 5.2): quadrant q is drawn from a shuffle bag [0,1,2,3]
  * (refilled + shuffled with rng.spawn when empty). Quadrant q covers angles
@@ -24,7 +34,7 @@
  * m ∈ [marginMin, marginMax) are chosen; the point is where the ray from the
  * player hits the view rect (centred on the player) expanded by m.
  */
-import { creditRate } from '../../data/balance';
+import { creditRate, eliteChance } from '../../data/balance';
 import { EventType } from '../EventBus';
 import { spawnEnemy } from '../entities';
 import { ENEMY_FLAG, type RunState } from '../RunState';
@@ -84,21 +94,37 @@ export function spawnPointFor(
   return out;
 }
 
-/**
- * Per-state cache: pool of enemy type indices (rebuilt when stageIdx changes)
- * and the pending pick. Keyed on the state but invalidated when state.rng.spawn
- * is replaced (resetRunState creates new streams), so nothing leaks across runs.
- */
-interface PoolCache {
-  rng: SeededRNG;
-  stageIdx: number;
+/** One spawn lane: its slice of the stage pool and its pending pick. */
+interface Lane {
   types: number[];
   minCost: number;
   maxCost: number;
   /** Type index chosen but not yet affordable (−1 = none). */
   pending: number;
 }
+
+/**
+ * Per-state cache: the two lanes' pools (rebuilt when stageIdx changes) and
+ * pending picks. Keyed on the state but invalidated when state.rng.spawn is
+ * replaced (resetRunState creates new streams), so nothing leaks across runs.
+ */
+interface PoolCache {
+  rng: SeededRNG;
+  stageIdx: number;
+  horde: Lane;
+  special: Lane;
+}
 const poolCache = new WeakMap<RunState, PoolCache>();
+
+function newLane(): Lane {
+  return { types: [], minCost: Infinity, maxCost: 0, pending: -1 };
+}
+
+function resetLane(l: Lane): void {
+  l.types.length = 0;
+  l.minCost = Infinity;
+  l.maxCost = 0;
+}
 
 function getPool(state: RunState): PoolCache {
   const d = state.director;
@@ -106,27 +132,29 @@ function getPool(state: RunState): PoolCache {
   if (cache && cache.rng !== state.rng.spawn) {
     cache.rng = state.rng.spawn;
     cache.stageIdx = -1;
-    cache.pending = -1;
+    cache.horde.pending = -1;
+    cache.special.pending = -1;
   }
   if (cache && cache.stageIdx === d.stageIdx) return cache;
   if (!cache) {
-    cache = { rng: state.rng.spawn, stageIdx: -1, types: [], minCost: Infinity, maxCost: 0, pending: -1 };
+    cache = { rng: state.rng.spawn, stageIdx: -1, horde: newLane(), special: newLane() };
     poolCache.set(state, cache);
   }
   const { stages, enemies } = state.config;
   cache.stageIdx = d.stageIdx;
-  cache.types.length = 0;
-  cache.minCost = Infinity;
-  cache.maxCost = 0;
+  resetLane(cache.horde);
+  resetLane(cache.special);
   const n = Math.min(d.stageIdx, stages.length);
   for (let s = 0; s < n; s++) {
     for (const id of stages[s].addTypes) {
       const idx = enemies.findIndex((e) => e.id === id);
-      if (idx < 0 || cache.types.includes(idx)) continue;
-      cache.types.push(idx);
+      if (idx < 0) continue;
+      const lane = enemies[idx].special ? cache.special : cache.horde;
+      if (lane.types.includes(idx)) continue;
+      lane.types.push(idx);
       const c = enemies[idx].threatCost;
-      if (c < cache.minCost) cache.minCost = c;
-      if (c > cache.maxCost) cache.maxCost = c;
+      if (c < lane.minCost) lane.minCost = c;
+      if (c > lane.maxCost) lane.maxCost = c;
     }
   }
   return cache;
@@ -181,35 +209,109 @@ export const spawnDirector: System = (ctx, dt) => {
   despawnFar(ctx);
   applyStages(state);
 
-  const pool = getPool(state);
-  if (pool.types.length === 0) return;
-
+  const pools = getPool(state);
   const b = state.config.balance;
   const d = state.director;
-  const t = state.clock.elapsed;
-  d.credits = Math.min(d.credits + creditRate(t, b) * dt, b.credits.maxCarry + pool.maxCost);
+  const rate = creditRate(state.clock.elapsed, b);
 
+  // Horde lane first so the regular monsters keep their v1 density.
+  if (pools.horde.types.length > 0) {
+    d.credits = Math.min(d.credits + rate * dt, b.credits.maxCarry + pools.horde.maxCost);
+    d.credits = runLane(ctx, pools.horde, d.credits);
+  }
+  if (pools.special.types.length > 0) {
+    const cap = b.credits.maxCarry + pools.special.maxCost;
+    d.specialCredits = Math.min(d.specialCredits + rate * b.credits.specialRate * dt, cap);
+    d.specialCredits = runLane(ctx, pools.special, d.specialCredits);
+  }
+};
+
+/** Spends a lane's credits on spawns (steps 4–5 above). Returns the remaining credits. */
+function runLane(ctx: SimContext, pool: Lane, credits: number): number {
+  const state = ctx.state;
+  const b = state.config.balance;
+  const t = state.clock.elapsed;
+  const cap = b.credits.maxCarry + pool.maxCost;
+  const d = { credits };
   const enemies = state.config.enemies;
   const rng = state.rng.spawn;
   const p = state.player;
+  const chance = eliteChance(t, b);
   while (d.credits >= pool.minCost && state.enemies.count < b.spawn.maxActive) {
     if (pool.pending < 0) pool.pending = rng.weighted(pool.types, () => 1) ?? -1;
     const typeIndex = pool.pending;
     if (typeIndex < 0) break;
+    const type = enemies[typeIndex];
+    const cost = type.threatCost;
+    // Groups (bats, Req 22.3) spawn together: save up for the whole group (bounded
+    // by free slots and by the carry cap so the pick can always be afforded).
+    const room = b.spawn.maxActive - state.enemies.count;
+    const groupSize = Math.max(1, Math.floor(type.behaviourParams?.groupSize ?? 1));
+    const want = Math.min(groupSize, room);
     // Save up for the pending pick (the credit cap always leaves room for the max cost).
-    if (enemies[typeIndex].threatCost > d.credits) break;
+    if (Math.min(cost * want, cap) > d.credits || cost > d.credits) break;
+    const n = cost > 0 ? Math.max(1, Math.min(want, Math.floor(d.credits / cost))) : want;
 
     const q = nextQuadrant(state);
-    const angle = quadrantStartAngle(q) + rng.next() * HALF_PI;
+    const qStart = quadrantStartAngle(q);
+    const angle = qStart + rng.next() * HALF_PI;
     const margin = rng.range(b.spawn.marginMin, b.spawn.marginMax);
     const pt = spawnPointFor(p.x, p.y, angle, margin, ctx.view);
-    const x = pt.x;
-    const y = pt.y;
+    const x0 = pt.x;
+    const y0 = pt.y;
+    const dist = Math.max(1, Math.hypot(x0 - p.x, y0 - p.y));
 
-    if (spawnEnemy(state, typeIndex, x, y) < 0) break;
-    const cost = enemies[typeIndex].threatCost;
-    d.credits -= cost;
+    let spawned = 0;
+    for (let k = 0; k < n; k++) {
+      let x = x0;
+      let y = y0;
+      if (k > 0) {
+        // Cluster members: small angle/margin jitter around the leader, kept inside
+        // the same quadrant and margin band (≈ CLUSTER_RADIUS px from the leader).
+        const a = clampAngle(angle + rng.range(-1, 1) * (CLUSTER_RADIUS * 0.6) / dist, qStart);
+        const m = Math.min(
+          b.spawn.marginMax,
+          Math.max(b.spawn.marginMin, margin + rng.range(-1, 1) * CLUSTER_RADIUS * 0.4),
+        );
+        const cp = spawnPointFor(p.x, p.y, a, m, ctx.view);
+        x = cp.x;
+        y = cp.y;
+      }
+      const id = spawnEnemy(state, typeIndex, x, y);
+      if (id < 0) break;
+      d.credits -= cost;
+      spawned++;
+      if (!type.boss && chance > 0 && rng.next() < chance) makeElite(state, id);
+      if (recorder) recorder(t, cost, x, y, q, typeIndex);
+    }
+    if (spawned === 0) break;
     pool.pending = -1;
-    if (recorder) recorder(t, cost, x, y, q, typeIndex);
   }
-};
+  return d.credits;
+}
+
+/** Max distance (px) of a group member from the group's leader spawn point. */
+export const CLUSTER_RADIUS = 40;
+
+function clampAngle(a: number, qStart: number): number {
+  const lo = qStart;
+  const hi = qStart + HALF_PI - 1e-6;
+  return a < lo ? lo : a > hi ? hi : a;
+}
+
+/**
+ * Turns an alive enemy into an Elite (Req 22.7): hp/maxHp × elite.hpMult,
+ * scale × elite.scale, radius × 1.15, energyValue × 3, flags |= ELITE | NO_MERGE.
+ * No-op for dead ids, bosses and enemies that are already elite.
+ */
+export function makeElite(state: RunState, id: number): void {
+  const e = state.enemies;
+  if (!e.isAlive(id) || e.flags[id] & (ENEMY_FLAG.BOSS | ENEMY_FLAG.ELITE)) return;
+  const cfg = state.config.balance.elite;
+  e.hp[id] *= cfg.hpMult;
+  e.maxHp[id] *= cfg.hpMult;
+  e.scale[id] *= cfg.scale;
+  e.radius[id] *= 1.15;
+  e.energyValue[id] *= 3;
+  e.flags[id] |= ENEMY_FLAG.ELITE | ENEMY_FLAG.NO_MERGE;
+}
