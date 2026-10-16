@@ -1,0 +1,17 @@
+{
+  "gameId": "GeqhreN2AKGK5eTr6AvK",
+  "relativePathToDistFolder": "dist",
+  "usesPreloader": false,
+  "fullscreenEnabled": true,
+  "maxDpr": 1.5,
+  "orientation": "portrait",
+  "platformFit": "both",
+  "keywords": [
+    "monsters",
+    "survivor",
+    "roguelite",
+    "halloween",
+    "pixel-art"
+  ],
+  "kitId": null
+}
