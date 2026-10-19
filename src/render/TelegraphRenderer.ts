@@ -6,7 +6,9 @@
  * allocation):
  *   - bat charge lines: enemies with the 'bat' behaviour in aiState 1 get a red
  *     dashed line along their locked aiDir, brightening as aiTimer → 0;
- *   - circle telegraphs: `drawCircleTelegraph` for boss slams / ring attacks.
+ *   - circle telegraphs: `drawCircleTelegraph` for boss slams / ring attacks;
+ *   - boss telegraphs (renderBoss, called from render()): slam circle at the
+ *     locked centre, pulsing violet ring around the boss while summoning.
  *
  * Call order per frame: `render()` (clears + draws bat lines) first, then any
  * `drawCircleTelegraph()` calls for that frame.
@@ -14,6 +16,7 @@
 import Phaser from 'phaser';
 import { DEPTH } from '../game/keys';
 import type { RunState } from '../sim/RunState';
+import { bossId, bossTelegraph } from '../sim/behaviours/boss';
 
 /** Bat aiState values (sim contract): 0 approach, 1 telegraph, 2 charging. */
 const BAT_TELEGRAPH = 1;
@@ -23,6 +26,8 @@ const GAP = 14;
 const LINE_COLOR = 0xff3b3b;
 const CIRCLE_COLOR = 0xff3b3b;
 const DEFAULT_TELEGRAPH_SEC = 0.75;
+/** Boss summon telegraph ring colour (violet). */
+const SUMMON_COLOR = 0xb45cff;
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -71,6 +76,36 @@ export class TelegraphRenderer {
       if (dx === 0 && dy === 0) continue;
       const t01 = clamp01(1 - e.aiTimer[id] / dur);
       this.drawBatLine(x, y, dx, dy, t01, timeMs);
+    }
+
+    this.renderBoss(alpha, timeMs);
+  }
+
+  /**
+   * Boss telegraphs (Req 24.3): slam = circle telegraph at the locked centre with
+   * slamRadius; summon = pulsing violet ring around the (interpolated) boss.
+   * Called by render(); draws for the current frame only.
+   */
+  renderBoss(alpha: number, timeMs: number): void {
+    const state = this.state;
+    const id = bossId(state);
+    if (id < 0) return;
+    const tg = bossTelegraph(state, id);
+    if (tg.kind === 'slam') {
+      this.drawCircleTelegraph(tg.x, tg.y, tg.radius, tg.t01);
+    } else if (tg.kind === 'summon') {
+      const e = state.enemies;
+      const x = e.prevX[id] + (e.x[id] - e.prevX[id]) * alpha;
+      const y = e.prevY[id] + (e.y[id] - e.prevY[id]) * alpha;
+      const g = this.lines;
+      const pulse = 0.5 + 0.5 * Math.sin(timeMs * (0.012 + 0.02 * tg.t01));
+      const r = tg.radius + e.radius[id] * 0.5 + 10 * pulse;
+      g.fillStyle(SUMMON_COLOR, 0.08 + 0.12 * tg.t01);
+      g.fillCircle(x, y, r);
+      g.lineStyle(4 + 3 * tg.t01, SUMMON_COLOR, 0.4 + 0.5 * pulse);
+      g.strokeCircle(x, y, r);
+      g.lineStyle(2, SUMMON_COLOR, 0.3 + 0.4 * tg.t01);
+      g.strokeCircle(x, y, r * (0.6 + 0.4 * tg.t01));
     }
   }
 

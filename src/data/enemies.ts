@@ -1,6 +1,7 @@
 /** Enemy type definitions (Req 6.3). */
 
-export type BehaviourId = 'chaser' | 'bat' | 'ghost' | 'slime' | 'witch' | 'boss';
+/** 'ringInward' and 'stampede' are runtime-only swarm overrides (Req 23), not used by enemy types. */
+export type BehaviourId = 'chaser' | 'bat' | 'ghost' | 'slime' | 'witch' | 'boss' | 'ringInward' | 'stampede';
 
 export interface EnemyType {
   id: string;

@@ -19,6 +19,8 @@ export const ENEMY_FLAG = {
   BOSS: 1 << 1,
   NO_MERGE: 1 << 2,
   NO_SEP: 1 << 3,
+  /** Member of a scripted swarm event (Req 23); steered by the ringInward/stampede behaviours. */
+  SWARM: 1 << 4,
 } as const;
 
 export const PROJECTILE_SIDE = { PLAYER: 0, ENEMY: 1 } as const;

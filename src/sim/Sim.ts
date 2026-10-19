@@ -29,12 +29,16 @@ import { spatialIndexSystem } from './systems/SpatialIndexSystem';
 import { spawnDirector } from './systems/SpawnDirector';
 import { installEliteTokenDrops, tokenSystem } from './systems/TokenSystem';
 import { installV2Behaviours } from './behaviours';
+import { bossSpawnSystem, installBoss } from './behaviours/boss';
+import { installSwarmBehaviours } from './behaviours/swarm';
 // Side-effect import: installs the mutation candidate/applier hooks into UpgradeSystem.
 import './upgrades/MutationSystem';
 
 // v2 content hooks (idempotent): bat/ghost/slime/witch steering, slime split, elite token drops.
 installV2Behaviours();
 installEliteTokenDrops();
+installSwarmBehaviours();
+installBoss();
 
 export const SIM_STEP = 1 / 60;
 
@@ -82,7 +86,8 @@ export class Sim {
     this.systems = [
       clockSystem, // 1
       createPlayerSystem(() => input), // 2
-      spawnDirector, // 3
+      spawnDirector, // 3 (credit lanes + swarm events)
+      bossSpawnSystem, // 3b (dawn boss, once per run; marks it fleeing at dawn)
       enemyAISystem, // 4
       spatialIndexSystem, // 5
       separationSystem, // 6

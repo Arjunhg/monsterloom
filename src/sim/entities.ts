@@ -9,7 +9,16 @@ import { ENEMY_FLAG, type RunState } from './RunState';
 import { clampStats } from './StatCaps';
 
 /** Numeric codes for EnemyStore.behaviour (index into this array = code). */
-export const BEHAVIOUR_IDS: readonly BehaviourId[] = ['chaser', 'bat', 'ghost', 'slime', 'witch', 'boss'];
+export const BEHAVIOUR_IDS: readonly BehaviourId[] = [
+  'chaser',
+  'bat',
+  'ghost',
+  'slime',
+  'witch',
+  'boss',
+  'ringInward',
+  'stampede',
+];
 export const BEHAVIOUR_CODE: Record<BehaviourId, number> = {
   chaser: 0,
   bat: 1,
@@ -17,6 +26,9 @@ export const BEHAVIOUR_CODE: Record<BehaviourId, number> = {
   slime: 3,
   witch: 4,
   boss: 5,
+  // Swarm overrides (Req 23), set at spawn by the SpawnDirector's swarm events.
+  ringInward: 6,
+  stampede: 7,
 };
 
 /**
