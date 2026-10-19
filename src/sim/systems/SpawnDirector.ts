@@ -8,6 +8,8 @@
  *     once (director.stageIdx = number of applied stages). Its types join the
  *     pool; the first time a type id is added, behaviourIntroduced fires with
  *     the type index (5.5, 22.1). Pool = union of addTypes of stages[0..stageIdx).
+ *  2b. Swarm events (Req 23, see ./swarm.ts and runSwarms): 2 s warning, then a
+ *     credit-free ring/stampede spawn (bounded by maxActive); director.swarmIdx++.
  *  3. Credits, in two independent lanes (steps 3–5 run once per lane):
  *     - horde lane (types without `special`): director.credits += creditRate(t)·dt
  *     - special lane (bats, slimes, ghosts, witches): director.specialCredits +=
@@ -40,6 +42,7 @@ import { spawnEnemy } from '../entities';
 import { ENEMY_FLAG, type RunState } from '../RunState';
 import type { SeededRNG } from '../rng/SeededRNG';
 import type { SimContext, System } from '../SimContext';
+import { spawnSwarmEvent } from './swarm';
 
 /** Debug/test hook invoked after every credit-funded spawn. */
 export type SpawnRecorder = (
@@ -113,6 +116,8 @@ interface PoolCache {
   stageIdx: number;
   horde: Lane;
   special: Lane;
+  /** Number of swarm events whose 2 s warning has fired (Req 23.5). */
+  swarmWarned: number;
 }
 const poolCache = new WeakMap<RunState, PoolCache>();
 
@@ -134,10 +139,11 @@ function getPool(state: RunState): PoolCache {
     cache.stageIdx = -1;
     cache.horde.pending = -1;
     cache.special.pending = -1;
+    cache.swarmWarned = 0;
   }
   if (cache && cache.stageIdx === d.stageIdx) return cache;
   if (!cache) {
-    cache = { rng: state.rng.spawn, stageIdx: -1, horde: newLane(), special: newLane() };
+    cache = { rng: state.rng.spawn, stageIdx: -1, horde: newLane(), special: newLane(), swarmWarned: 0 };
     poolCache.set(state, cache);
   }
   const { stages, enemies } = state.config;
@@ -210,6 +216,7 @@ export const spawnDirector: System = (ctx, dt) => {
   applyStages(state);
 
   const pools = getPool(state);
+  runSwarms(ctx, pools);
   const b = state.config.balance;
   const d = state.director;
   const rate = creditRate(state.clock.elapsed, b);
@@ -225,6 +232,31 @@ export const spawnDirector: System = (ctx, dt) => {
     d.specialCredits = runLane(ctx, pools.special, d.specialCredits);
   }
 };
+
+/** Seconds before a swarm event at which its warning fires (Req 23.5). */
+export const SWARM_WARNING_SEC = 2;
+
+/**
+ * Swarm events (Req 23): each config.swarmEvents[i] emits swarmWarning(i, secondsUntilStart)
+ * once when elapsed ≥ atSec − SWARM_WARNING_SEC, then spawns once when elapsed ≥ atSec
+ * (director.swarmIdx counts started events). Spawns ignore credits but respect maxActive.
+ */
+function runSwarms(ctx: SimContext, cache: PoolCache): void {
+  const state = ctx.state;
+  const swarms = state.config.swarmEvents;
+  if (!swarms || swarms.length === 0) return;
+  const d = state.director;
+  const t = state.clock.elapsed;
+  if (cache.swarmWarned < d.swarmIdx) cache.swarmWarned = d.swarmIdx;
+  while (cache.swarmWarned < swarms.length && t >= swarms[cache.swarmWarned].atSec - SWARM_WARNING_SEC) {
+    const i = cache.swarmWarned++;
+    state.events.push(EventType.swarmWarning, i, Math.max(0, swarms[i].atSec - t));
+  }
+  while (d.swarmIdx < swarms.length && t >= swarms[d.swarmIdx].atSec) {
+    spawnSwarmEvent(ctx, swarms[d.swarmIdx]);
+    d.swarmIdx++;
+  }
+}
 
 /** Spends a lane's credits on spawns (steps 4–5 above). Returns the remaining credits. */
 function runLane(ctx: SimContext, pool: Lane, credits: number): number {

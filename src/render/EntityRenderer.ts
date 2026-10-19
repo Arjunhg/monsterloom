@@ -7,6 +7,7 @@
 import Phaser from 'phaser';
 import { DEPTH, PALETTE, TEX } from '../game/keys';
 import { ENEMY_FLAG, PROJECTILE_SIDE, type RunState } from '../sim/RunState';
+import { bossFleeing } from '../sim/behaviours/boss';
 
 /** Entities further than this outside the camera view are hidden. */
 const CULL_MARGIN = 200;
@@ -23,6 +24,9 @@ const BAT_CHARGING = 2;
 const TIER_TINT: readonly number[] = [0xffffff, 0xffe2dc, 0xffaaa0, 0xd8605a];
 
 const TOKEN_GLOW_COLOR = 0xffd23d;
+/** Boss flee at dawn (Req 24.5): upward offset = speed·t + accel·t² (px, t in ms). */
+const BOSS_FLEE_SPEED = 0.25;
+const BOSS_FLEE_ACCEL = 0.0015;
 
 const KIND_OTHER = 0;
 const KIND_BAT = 1;
@@ -97,6 +101,8 @@ export class EntityRenderer {
   /** Per enemy type: KIND_* render behaviour. */
   private readonly enemyKind: number[];
   private readonly view = new Phaser.Geom.Rectangle();
+  /** Frame time when the boss started fleeing (−1 = not fleeing). */
+  private fleeStartMs = -1;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -162,11 +168,19 @@ export class EntityRenderer {
     glows.begin();
     // One shared pulse for all elites (0..1).
     const elitePulse = 0.5 + 0.5 * Math.sin(timeMs * 0.006);
+    // Boss flee offset (accelerating upward) once dawn arrives with the boss alive.
+    let fleeDy = 0;
+    if (bossFleeing(this.state)) {
+      if (this.fleeStartMs < 0) this.fleeStartMs = timeMs;
+      const t = timeMs - this.fleeStartMs;
+      fleeDy = -(BOSS_FLEE_SPEED * t + BOSS_FLEE_ACCEL * t * t);
+    } else this.fleeStartMs = -1;
     const ids = e.pool.activeIds;
     for (let k = 0; k < e.count; k++) {
       const id = ids[k];
       let x = lerp(e.prevX[id], e.x[id], alpha);
-      const y = lerp(e.prevY[id], e.y[id], alpha);
+      let y = lerp(e.prevY[id], e.y[id], alpha);
+      if (fleeDy !== 0 && (e.flags[id] & ENEMY_FLAG.BOSS) !== 0) y += fleeDy; // dawn: boss flies off (Req 24.5)
       if (!this.inView(x, y)) continue;
       const img = pool.next();
       if (!img) break;

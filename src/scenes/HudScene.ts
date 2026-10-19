@@ -22,6 +22,12 @@ import { EventType } from '../sim/EventBus';
 import type { Rect } from '../sim/input/InputManager';
 import { fillFraction } from '../sim/systems/EnergySystem';
 import { skyPhase, timeRemaining } from '../sim/systems/ClockSystem';
+import { bossId } from '../sim/behaviours/boss';
+
+/** Boss health bar (Req 24.2): below the top bar and the banner line. */
+const BOSS_BAR_OFFSET = 100; // below T + TOP_BAR_H
+const BOSS_BAR_H = 24;
+const BOSS_COLOR = 0xff3f6a;
 
 /** Minimum margin from the canvas edge / safe-area inset (game px). */
 const MARGIN = 24;
@@ -140,6 +146,10 @@ export default class HudScene extends Phaser.Scene {
   private banner!: Phaser.GameObjects.Text;
   private bannerTween: Phaser.Tweens.Tween | null = null;
 
+  // Boss health bar (Req 24.2).
+  private bossBar!: Phaser.GameObjects.Container;
+  private bossBarFill!: Phaser.GameObjects.Rectangle;
+
   // Pause overlay.
   private overlay!: Phaser.GameObjects.Container;
   private overlayBackdrop!: Phaser.GameObjects.Rectangle;
@@ -182,6 +192,7 @@ export default class HudScene extends Phaser.Scene {
 
     this.buildTopBar();
     this.buildBanner();
+    this.buildBossBar();
     this.buildOverlay();
     if (this.session.flags.debug) this.buildDebug();
 
@@ -227,6 +238,8 @@ export default class HudScene extends Phaser.Scene {
     // Part row safety net (e.g. sim restarted while the HUD stayed alive).
     const size = state.build.parts.size * 100 + state.build.mutations.size;
     if (size !== this.lastBuildSize) this.rebuildPartRow();
+
+    this.updateBossBar();
 
     // Pause button only meaningful while running.
     const canPause = state.paused === false && state.outcome === null;
@@ -301,6 +314,45 @@ export default class HudScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setAlpha(0)
       .setVisible(false);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boss health bar (Req 24.2)
+  // ---------------------------------------------------------------------------
+
+  private buildBossBar(): void {
+    const name = this.session.sim.state.config.enemies.find((e) => e.boss)?.name ?? 'The Night Mother';
+    const label = this.add.text(0, 0, name, this.textStyle(26, '#ffd0dc')).setOrigin(0.5, 1).setName('label');
+    const bg = this.add
+      .rectangle(0, 0, 10, BOSS_BAR_H, 0x0b0820, 0.75)
+      .setOrigin(0, 0)
+      .setStrokeStyle(3, BOSS_COLOR, 0.9)
+      .setName('bg');
+    this.bossBarFill = this.add.rectangle(0, 0, 10, BOSS_BAR_H - 6, BOSS_COLOR).setOrigin(0, 0);
+    this.bossBar = this.add.container(0, 0, [bg, this.bossBarFill, label]).setVisible(false);
+  }
+
+  /** Positions the bar (container at the bar's top-left, spanning the safe width). */
+  private layoutBossBar(T: number, L: number, R: number): void {
+    const w = Math.max(200, GAME_WIDTH - L - R);
+    this.bossBar.setPosition(L, T + TOP_BAR_H + BOSS_BAR_OFFSET);
+    const bg = this.bossBar.getByName('bg') as Phaser.GameObjects.Rectangle | null;
+    const label = this.bossBar.getByName('label') as Phaser.GameObjects.Text | null;
+    bg?.setPosition(0, 0).setSize(w, BOSS_BAR_H);
+    this.bossBarFill.setPosition(3, 3).setSize(w - 6, BOSS_BAR_H - 6);
+    label?.setPosition(w / 2, -4);
+  }
+
+  /** Shows the bar with hp/maxHp while the boss is alive; hidden otherwise. */
+  private updateBossBar(): void {
+    const state = this.session.sim.state;
+    const id = bossId(state);
+    const show = id >= 0 && state.outcome === null;
+    if (this.bossBar.visible !== show) this.bossBar.setVisible(show);
+    if (!show) return;
+    const e = state.enemies;
+    const max = e.maxHp[id] > 0 ? e.maxHp[id] : 1;
+    this.bossBarFill.scaleX = Math.min(1, Math.max(0, e.hp[id] / max));
   }
 
   private makeButton(
@@ -446,6 +498,7 @@ export default class HudScene extends Phaser.Scene {
 
     this.partRow.setPosition(L, T + PART_ROW_OFFSET);
     this.banner.setPosition(GAME_WIDTH / 2, T + TOP_BAR_H + 60);
+    this.layoutBossBar(T, L, R);
     if (this.debugText) this.debugText.setPosition(L, GAME_HEIGHT - ins.bottom);
 
     this.lastPhaseBucket = -1;
@@ -535,6 +588,12 @@ export default class HudScene extends Phaser.Scene {
   private onSimEvent(type: number, a: number): void {
     if (type === EventType.partGained || type === EventType.partLevelled || type === EventType.mutation) {
       this.rebuildPartRow();
+    } else if (type === EventType.swarmWarning) {
+      // Swarm warning (Req 23.5): red-ish banner for 2 s.
+      const swarm = this.session.sim.state.config.swarmEvents?.[a];
+      if (swarm) {
+        this.showBanner(swarm.kind === 'ring' ? 'A ring of monsters closes in!' : 'Stampede incoming!', '#ff7a6b');
+      }
     } else if (type === EventType.behaviourIntroduced) {
       const cfg = this.session.sim.state.config;
       const enemy = cfg.enemies[a];
@@ -546,9 +605,9 @@ export default class HudScene extends Phaser.Scene {
     }
   }
 
-  private showBanner(text: string): void {
+  private showBanner(text: string, color = '#fff6a8'): void {
     this.bannerTween?.stop();
-    this.banner.setText(text).setVisible(true).setAlpha(1);
+    this.banner.setText(text).setColor(color).setVisible(true).setAlpha(1);
     this.bannerTween = this.tweens.add({
       targets: this.banner,
       alpha: 0,
