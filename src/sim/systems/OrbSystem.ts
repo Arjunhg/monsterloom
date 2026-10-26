@@ -52,7 +52,7 @@ export const orbSystem: System = (ctx, dt) => {
   const orbs = state.orbs;
   const p = state.player;
   const bal = state.config.balance.orbs;
-  const magnetR = p.pickupRadius * p.stats.pickupRadius;
+  const magnetR = p.pickupRadius * p.stats.pickupRadius * (p.viewBoost || 1);
   const magnetR2 = magnetR * magnetR;
   const collectR = p.radius + ORB_RADIUS;
   const collectR2 = collectR * collectR;
@@ -83,7 +83,7 @@ export const orbSystem: System = (ctx, dt) => {
       const x = orbs.x[id]!;
       const y = orbs.y[id]!;
       orbs.free(id);
-      collectEnergy(state, value);
+      collectEnergy(state, value * (p.viewBoost || 1));
       state.events.push(EventType.orbCollected, value, x, y);
     }
   }

@@ -33,7 +33,8 @@ export const damageSystem: System = (ctx, dt) => {
   for (let i = 0; i < q.count; i++) {
     const id = q.enemy[i];
     if (!enemies.isAlive(id)) continue;
-    const amount = q.amount[i];
+    // All queued damage is player damage; scale it for wide screens (1 on portrait).
+    const amount = q.amount[i] * (state.player.viewBoost || 1);
     enemies.hp[id] -= amount;
     state.stats.damageDealt += amount;
     enemies.hitFlash[id] = HIT_FLASH_SEC;

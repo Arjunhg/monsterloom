@@ -27,6 +27,7 @@ import { ENEMY_FLAG, type RunState } from '../RunState';
 import type { SimContext, System } from '../SimContext';
 import { onEnemyKilled, type EnemyKilledHook } from '../systems/DamageSystem';
 import { registerBehaviour, type BehaviourFn } from '../systems/EnemyAISystem';
+import { viewDistanceScale } from '../systems/viewScale';
 
 export const BOSS_STATE = { approach: 0, slam: 1, summon: 2, recover: 3, fleeing: 4 } as const;
 
@@ -40,6 +41,8 @@ export const BOSS_SUMMON_RING = 80;
 /** Spawn offset above the top edge of the view (px). */
 export const BOSS_SPAWN_MARGIN = 120;
 export const BOSS_BONUS_ORBS = 10;
+// CATCHUP / BLINK / BLINK_TO / SUMMON_RANGE are portrait-view values; at runtime they are
+// multiplied by viewDistanceScale(ctx.view) (= 1 on 720×1560). Slam range is not scaled.
 /** Beyond this distance the boss moves at speed × BOSS_CATCHUP_MULT. */
 export const BOSS_CATCHUP_DIST = 600;
 export const BOSS_CATCHUP_MULT = 3;
@@ -305,8 +308,11 @@ export const bossBehaviour: BehaviourFn = (ctx, id, dt) => {
   let d = Math.hypot(dx, dy);
   // Keep up with a kiting player (the player is ~3× faster): blink back just
   // off-screen when far behind, and speed up while closing in.
-  if (d > BOSS_BLINK_DIST) {
-    const k = BOSS_BLINK_TO / d;
+  // View-relative ranges grow with the view diagonal (k = 1 on the default 720×1560 view)
+  // so on wide screens she blinks to just off-screen rather than into view.
+  const vk = viewDistanceScale(ctx.view);
+  if (d > BOSS_BLINK_DIST * vk) {
+    const k = (BOSS_BLINK_TO * vk) / d;
     e.x[id] = e.prevX[id] = p.x - dx * k;
     e.y[id] = e.prevY[id] = p.y - dy * k;
     dx = p.x - e.x[id];
@@ -314,7 +320,7 @@ export const bossBehaviour: BehaviourFn = (ctx, id, dt) => {
     d = Math.hypot(dx, dy);
   }
   if (d > BOSS_HOLD_DIST) {
-    const catchUp = d > BOSS_CATCHUP_DIST ? BOSS_CATCHUP_MULT : 1;
+    const catchUp = d > BOSS_CATCHUP_DIST * vk ? BOSS_CATCHUP_MULT : 1;
     const s = (e.speed[id] * catchUp * (1 - e.slowAmt[id])) / d;
     e.vx[id] = dx * s;
     e.vy[id] = dy * s;
@@ -328,7 +334,7 @@ export const bossBehaviour: BehaviourFn = (ctx, id, dt) => {
   if (atk.cooldown > 0) return;
   // Slams need the player in range; summons can be cast from further away, so a
   // kiting player still gets pressure. Out of slam range, the summon goes first.
-  if (d > BOSS_SUMMON_RANGE) return;
+  if (d > BOSS_SUMMON_RANGE * vk) return;
   if (atk.next === 0 && d > BOSS_ATTACK_RANGE) atk.next = 1;
 
   e.vx[id] = 0;

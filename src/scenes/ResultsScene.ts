@@ -10,6 +10,7 @@
  */
 import Phaser from 'phaser';
 import { FONT, GAME_HEIGHT, GAME_WIDTH, PALETTE, SCENE, SFX } from '../game/keys';
+import { columnLayout, onResizeSettled, type ColumnLayout } from '../game/layout';
 import { getSession } from '../game/Session';
 import { getAudio } from '../juice/AudioManager';
 import { PlayerRenderer } from '../render/PlayerRenderer';
@@ -42,6 +43,7 @@ function mutationsSummary(state: RunState): string {
 
 export default class ResultsScene extends Phaser.Scene {
   private portrait: PlayerRenderer | null = null;
+  private layout: ColumnLayout = { width: GAME_WIDTH, height: GAME_HEIGHT, ox: 0, oy: 0 };
   private createdAt = 0;
   private leaving = false;
 
@@ -49,23 +51,28 @@ export default class ResultsScene extends Phaser.Scene {
     super(SCENE.results);
   }
 
-  create(): void {
+  create(data?: { relayout?: boolean }): void {
+    // A relayout is a restart triggered by a canvas resize: same visit, so the
+    // run-ended analytics / music logic below must not run again.
+    const relayout = data?.relayout === true;
     // Scene instance is reused across runs: reset per-visit fields.
     this.leaving = false;
-    this.createdAt = this.time.now;
+    if (!relayout) this.createdAt = this.time.now;
     this.portrait = null;
 
     const session = getSession();
     const state = session.sim.state;
     const victory = state.outcome === 'victory';
-    const cx = GAME_WIDTH / 2;
+    const L = (this.layout = columnLayout(this));
+    const cx = L.width / 2;
+    const oy = L.oy;
     this.cameras.main.setBackgroundColor(victory ? PALETTE.dawn : PALETTE.night);
 
     this.drawBackdrop(victory);
 
     // Headline.
     this.add
-      .text(cx, 150, victory ? 'You survived the night!' : 'The night took you…', {
+      .text(cx, oy + 150, victory ? 'You survived the night!' : 'The night took you…', {
         fontFamily: FONT,
         fontSize: '60px',
         fontStyle: 'bold',
@@ -80,13 +87,13 @@ export default class ResultsScene extends Phaser.Scene {
     // Portrait on a pedestal.
     const pedestal = this.add.graphics();
     pedestal.fillStyle(0x000000, 0.35);
-    pedestal.fillEllipse(cx, PORTRAIT_Y + 120, 300, 64);
+    pedestal.fillEllipse(cx, oy + PORTRAIT_Y + 120, 300, 64);
     pedestal.fillStyle(victory ? 0xffe2a8 : 0x3a2878, 0.6);
-    pedestal.fillEllipse(cx, PORTRAIT_Y + 112, 240, 44);
+    pedestal.fillEllipse(cx, oy + PORTRAIT_Y + 112, 240, 44);
 
     const portrait = new PlayerRenderer(this, state, { interactive: false });
     // sync() owns the inner container's scale (idle squash), so scale a wrapper instead.
-    const frame = this.add.container(cx, PORTRAIT_Y, [portrait.container]).setScale(PORTRAIT_SCALE);
+    const frame = this.add.container(cx, oy + PORTRAIT_Y, [portrait.container]).setScale(PORTRAIT_SCALE);
     frame.setDepth(10);
     portrait.sync(0, 0, this.time.now);
     this.portrait = portrait;
@@ -94,29 +101,35 @@ export default class ResultsScene extends Phaser.Scene {
     this.drawStatsCard(state, victory);
 
     // Buttons.
-    this.makeButton(cx, 1340, 480, BUTTON_H, 'Another night', '50px', () => this.anotherNight());
-    this.makeButton(cx, 1470, 320, BUTTON_H - 16, 'Title', '42px', () => this.toTitle());
+    this.makeButton(cx, oy + 1340, 480, BUTTON_H, 'Another night', '50px', () => this.anotherNight());
+    this.makeButton(cx, oy + 1470, 320, BUTTON_H - 16, 'Title', '42px', () => this.toTitle());
     this.input.keyboard?.on('keydown-ENTER', () => this.anotherNight());
     this.input.keyboard?.on('keydown-SPACE', () => this.anotherNight());
 
-    // Analytics once per results visit (= once per run).
-    session.platform.track('run_ended', {
-      outcome: state.outcome ?? 'unknown',
-      survivalSec: Math.floor(state.clock.elapsed),
-      kills: state.stats.kills,
-      levelUps: state.energy.levelUps,
-      seed: state.seed,
-    });
+    if (!relayout) {
+      // Analytics once per results visit (= once per run).
+      session.platform.track('run_ended', {
+        outcome: state.outcome ?? 'unknown',
+        survivalSec: Math.floor(state.clock.elapsed),
+        kills: state.stats.kills,
+        levelUps: state.energy.levelUps,
+        seed: state.seed,
+      });
 
-    // Music: keep the loop going after a victory, silence it after a defeat.
-    if (!victory) {
-      try {
-        getAudio().stopMusic();
-      } catch {
-        // Audio is optional.
+      // Music: keep the loop going after a victory, silence it after a defeat.
+      if (!victory) {
+        try {
+          getAudio().stopMusic();
+        } catch {
+          // Audio is optional.
+        }
       }
     }
 
+    // Re-layout on canvas resize (Scale.EXPAND) by restarting as the same visit.
+    onResizeSettled(this, () => {
+      if (!this.leaving) this.scene.restart({ relayout: true });
+    });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
   }
 
@@ -130,14 +143,15 @@ export default class ResultsScene extends Phaser.Scene {
   // ---------------------------------------------------------------------------
 
   private drawBackdrop(victory: boolean): void {
-    const cx = GAME_WIDTH / 2;
+    const { width: W, height: H, ox, oy } = this.layout;
+    const cx = W / 2;
     const bg = this.add.graphics();
     if (victory) {
       // Warm dawn: violet top fading to peach/gold at the horizon.
       bg.fillGradientStyle(0x3a2a6e, 0x3a2a6e, 0xf2a16b, 0xf2a16b, 1);
-      bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT * 0.55);
+      bg.fillRect(0, 0, W, H * 0.55);
       bg.fillGradientStyle(0xf2a16b, 0xf2a16b, PALETTE.dawn, PALETTE.dawn, 1);
-      bg.fillRect(0, GAME_HEIGHT * 0.55, GAME_WIDTH, GAME_HEIGHT * 0.45);
+      bg.fillRect(0, H * 0.55, W, H * 0.45);
 
       // Rising sun with a soft glow, behind the portrait.
       const sun = this.add.graphics();
@@ -147,8 +161,8 @@ export default class ResultsScene extends Phaser.Scene {
       sun.fillCircle(0, 0, 160);
       sun.fillStyle(0xfff3c4, 1);
       sun.fillCircle(0, 0, 120);
-      sun.setPosition(cx, PORTRAIT_Y + 260);
-      this.tweens.add({ targets: sun, y: PORTRAIT_Y - 40, duration: 2600, ease: 'Sine.easeOut' });
+      sun.setPosition(cx, oy + PORTRAIT_Y + 260);
+      this.tweens.add({ targets: sun, y: oy + PORTRAIT_Y - 40, duration: 2600, ease: 'Sine.easeOut' });
       this.tweens.add({
         targets: sun,
         scale: 1.04,
@@ -161,29 +175,31 @@ export default class ResultsScene extends Phaser.Scene {
     } else {
       // Deep night with a few dim stars and a pale moon.
       bg.fillGradientStyle(0x07051a, 0x07051a, PALETTE.night, PALETTE.night, 1);
-      bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT * 0.6);
+      bg.fillRect(0, 0, W, H * 0.6);
       bg.fillGradientStyle(PALETTE.night, PALETTE.night, 0x2a1850, 0x2a1850, 1);
-      bg.fillRect(0, GAME_HEIGHT * 0.6, GAME_WIDTH, GAME_HEIGHT * 0.4);
+      bg.fillRect(0, H * 0.6, W, H * 0.4);
       const stars = this.add.graphics();
-      for (let i = 0; i < 40; i++) {
+      // Same star density per screen area on wide/tall canvases.
+      const starCount = Math.round((40 * (W * H)) / (GAME_WIDTH * GAME_HEIGHT));
+      for (let i = 0; i < starCount; i++) {
         // Deterministic scatter (no RNG needed for decoration).
-        const x = (i * 157.3) % GAME_WIDTH;
-        const y = (i * 97.1) % (GAME_HEIGHT * 0.5);
+        const x = (i * 157.3) % W;
+        const y = (i * 97.1) % (H * 0.5);
         stars.fillStyle(0xf4f1ff, 0.25 + ((i * 37) % 50) / 100);
         stars.fillCircle(x, y, 1.5 + (i % 3));
       }
       this.tweens.add({ targets: stars, alpha: 0.6, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
       const moon = this.add.graphics();
       moon.fillStyle(0xd8d4f0, 0.8);
-      moon.fillCircle(590, 290, 54);
+      moon.fillCircle(ox + 590, oy + 290, 54);
       moon.fillStyle(0x07051a, 1);
-      moon.fillCircle(612, 274, 48);
+      moon.fillCircle(ox + 612, oy + 274, 48);
     }
   }
 
   private drawStatsCard(state: RunState, victory: boolean): void {
-    const cx = GAME_WIDTH / 2;
-    const top = 680;
+    const cx = this.layout.width / 2;
+    const top = this.layout.oy + 680;
     const w = GAME_WIDTH - 80;
     const h = 570;
     const card = this.add.graphics();

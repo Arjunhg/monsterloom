@@ -3,7 +3,7 @@
   box-sizing: border-box;
 }
 
-/* Safe-area insets exposed for DOM overlays (the canvas is letterboxed by Scale.FIT). */
+/* Safe-area insets exposed for DOM overlays and the HUD (the canvas fills the window via Scale.EXPAND). */
 :root {
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);

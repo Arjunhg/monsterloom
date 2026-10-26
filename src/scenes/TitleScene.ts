@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { getSession, type Settings } from '../game/Session';
-import { FONT, GAME_HEIGHT, GAME_WIDTH, PALETTE, SCENE, TEX } from '../game/keys';
+import { FONT, GAME_HEIGHT, PALETTE, SCENE, TEX } from '../game/keys';
+import { columnLayout, onResizeSettled } from '../game/layout';
 import { getAudio } from '../juice/AudioManager';
 
 let runStartedFired = false;
@@ -36,25 +37,27 @@ export default class TitleScene extends Phaser.Scene {
 
   create(): void {
     this.starting = false;
-    const cx = GAME_WIDTH / 2;
+    // Full-screen backdrop + a GAME_WIDTH-wide content column centred in the canvas.
+    const { width: W, height: H, ox, oy } = columnLayout(this);
+    const cx = W / 2;
 
     // Night backdrop: vertical gradient + dim ground tiles + vignette.
     const bg = this.add.graphics();
     bg.fillGradientStyle(PALETTE.night, PALETTE.night, 0x2a1850, 0x2a1850, 1);
-    bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    this.add.tileSprite(0, GAME_HEIGHT * 0.45, GAME_WIDTH, GAME_HEIGHT * 0.55, TEX.ground).setOrigin(0, 0).setAlpha(0.7);
-    this.add.image(cx, GAME_HEIGHT / 2, TEX.vignette).setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+    bg.fillRect(0, 0, W, H);
+    this.add.tileSprite(0, H * 0.45, W, H * 0.55, TEX.ground).setOrigin(0, 0).setAlpha(0.7);
+    this.add.image(cx, H / 2, TEX.vignette).setDisplaySize(W, H);
 
     // Moon.
     const moon = this.add.graphics();
     moon.fillStyle(PALETTE.dawn, 0.9);
-    moon.fillCircle(560, 200, 70);
+    moon.fillCircle(ox + 560, oy + 200, 70);
     moon.fillStyle(PALETTE.night, 1);
-    moon.fillCircle(590, 180, 62);
+    moon.fillCircle(ox + 590, oy + 180, 62);
 
     // Title.
     this.add
-      .text(cx, 360, 'Monster Mash\nSurvivor', {
+      .text(cx, oy + 360, 'Monster Mash\nSurvivor', {
         fontFamily: FONT,
         fontSize: '84px',
         fontStyle: 'bold',
@@ -66,16 +69,16 @@ export default class TitleScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     // Bobbing player blob.
-    const blob = this.add.image(cx, 640, TEX.playerBody).setScale(3);
-    this.tweens.add({ targets: blob, y: 610, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    const blob = this.add.image(cx, oy + 640, TEX.playerBody).setScale(3);
+    this.tweens.add({ targets: blob, y: oy + 610, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
     // Start button (big tap target, Req 1.5).
-    this.makeButton(cx, 880, 460, 130, 'Start Night', '56px', () => this.startRun());
+    this.makeButton(cx, oy + 880, 460, 130, 'Start Night', '56px', () => this.startRun());
 
     // Settings toggles.
     const settings = getSession().settings;
     TOGGLES.forEach((t, i) => {
-      const y = 1080 + i * 120;
+      const y = oy + 1080 + i * 120;
       const label = (): string => `${t.label}: ${t.isOn(settings) ? 'On' : 'Off'}`;
       const btn = this.makeButton(cx, y, 420, 96, label(), '38px', () => {
         t.flip(settings);
@@ -84,7 +87,7 @@ export default class TitleScene extends Phaser.Scene {
     });
 
     this.add
-      .text(cx, GAME_HEIGHT - 80, 'Drag to move. Survive till dawn.', {
+      .text(cx, oy + GAME_HEIGHT - 80, 'Drag to move. Survive till dawn.', {
         fontFamily: FONT,
         fontSize: '30px',
         color: PALETTE.textDim,
@@ -96,6 +99,17 @@ export default class TitleScene extends Phaser.Scene {
     this.input.keyboard?.once('keydown', () => this.unlockAudio());
     this.input.keyboard?.on('keydown-ENTER', () => this.startRun());
     this.input.keyboard?.on('keydown-SPACE', () => this.startRun());
+
+    // Re-layout on canvas resize (Scale.EXPAND): the scene is stateless, so just restart it.
+    onResizeSettled(this, () => {
+      if (!this.starting) this.scene.restart();
+    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      // Keyboard listeners persist across restarts; drop ours so they don't stack up.
+      this.input.keyboard?.off('keydown-ENTER');
+      this.input.keyboard?.off('keydown-SPACE');
+      this.input.keyboard?.off('keydown');
+    });
   }
 
   private makeButton(

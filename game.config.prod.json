@@ -4,7 +4,7 @@
   "usesPreloader": false,
   "fullscreenEnabled": true,
   "maxDpr": 1.5,
-  "orientation": "portrait",
+  "orientation": "both",
   "platformFit": "both",
   "keywords": [
     "monsters",

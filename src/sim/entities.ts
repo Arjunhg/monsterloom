@@ -68,6 +68,8 @@ export function spawnEnemy(state: RunState, typeIndex: number, x: number, y: num
 export function damagePlayer(state: RunState, amount: number): boolean {
   const p = state.player;
   if (!(amount > 0) || p.invuln > 0 || state.outcome !== null) return false;
+  // Wide-screen adaptation: tougher hide against the bigger crowd (1 on portrait).
+  amount /= p.viewBoost || 1;
   p.hp = Math.min(p.maxHp, Math.max(0, p.hp - amount));
   p.invuln = state.config.balance.player.invulnSec;
   state.events.push(EventType.playerHurt, amount, p.hp);
@@ -116,7 +118,7 @@ export function playerMoveSpeed(state: RunState): number {
 /** Effective pickup radius (base × capped pickupRadius multiplier). */
 export function playerPickupRadius(state: RunState): number {
   clampStats(state.player.stats, state.config.balance.caps);
-  return state.player.pickupRadius * state.player.stats.pickupRadius;
+  return state.player.pickupRadius * state.player.stats.pickupRadius * (state.player.viewBoost || 1);
 }
 
 /** Index of a body part id in config.bodyParts (−1 if unknown). */

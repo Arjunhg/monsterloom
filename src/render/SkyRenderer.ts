@@ -6,7 +6,7 @@
  * fireflies drift above the ground.
  */
 import Phaser from 'phaser';
-import { DEPTH, GAME_HEIGHT, GAME_WIDTH, PALETTE, TEX } from '../game/keys';
+import { DEPTH, PALETTE, TEX } from '../game/keys';
 import { skyBrightness, skyPhase } from '../sim/systems/ClockSystem';
 import type { RunState } from '../sim/RunState';
 
@@ -59,14 +59,19 @@ export class SkyRenderer {
   private readonly overlay: Phaser.GameObjects.Graphics;
   private readonly fireflies: Firefly[] = [];
   private lastPhaseKey = -1;
+  private viewW: number;
+  private viewH: number;
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly state: RunState,
   ) {
+    const cam = scene.cameras.main;
+    this.viewW = Math.ceil(cam.width);
+    this.viewH = Math.ceil(cam.height);
     const groundKey = scene.textures.exists(TEX.ground) ? TEX.ground : '__WHITE';
     this.ground = scene.add
-      .tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, groundKey)
+      .tileSprite(0, 0, this.viewW, this.viewH, groundKey)
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(DEPTH.ground);
@@ -85,8 +90,8 @@ export class SkyRenderer {
         .setScale(0.5);
       this.fireflies.push({
         img,
-        x: Math.random() * GAME_WIDTH,
-        y: Math.random() * GAME_HEIGHT,
+        x: Math.random() * this.viewW,
+        y: Math.random() * this.viewH,
         phase: Math.random() * Math.PI * 2,
         speed: 6 + Math.random() * 10,
       });
@@ -95,21 +100,31 @@ export class SkyRenderer {
 
   render(timeMs: number, deltaMs: number): void {
     const cam = this.scene.cameras.main;
+    // Cover the whole camera at any canvas size (Scale.EXPAND resizes it).
+    const vw = Math.ceil(cam.width);
+    const vh = Math.ceil(cam.height);
+    let resized = false;
+    if (vw !== this.viewW || vh !== this.viewH) {
+      this.viewW = vw;
+      this.viewH = vh;
+      this.ground.setSize(vw, vh);
+      resized = true;
+    }
     this.ground.setTilePosition(cam.scrollX, cam.scrollY);
 
     const clock = this.state.clock;
     const phase = skyPhase(clock.elapsed, clock.duration);
     const bright = skyBrightness(phase);
-    // Redraw only when the phase moved noticeably (≈ 500 steps over a run).
+    // Redraw only when the phase moved noticeably (≈ 500 steps over a run) or the view resized.
     const key = Math.round(phase * 500);
-    if (key !== this.lastPhaseKey) {
+    if (key !== this.lastPhaseKey || resized) {
       this.lastPhaseKey = key;
       const [top, bottom] = skyColors(phase);
       const a = OVERLAY_ALPHA_NIGHT + (OVERLAY_ALPHA_DAWN - OVERLAY_ALPHA_NIGHT) * bright;
       const g = this.overlay;
       g.clear();
       g.fillGradientStyle(top, top, bottom, bottom, a, a, a, a);
-      g.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+      g.fillRect(0, 0, vw, vh);
       const grey = Math.round(GROUND_DARK + (GROUND_LIGHT - GROUND_DARK) * bright);
       if (this.ground.texture.key !== '__WHITE') this.ground.setTint((grey << 16) | (grey << 8) | grey);
     }
@@ -121,11 +136,11 @@ export class SkyRenderer {
       f.y -= f.speed * dt;
       f.x += Math.sin(timeMs * 0.0011 + f.phase) * 12 * dt;
       if (f.y < -10) {
-        f.y = GAME_HEIGHT + 10;
-        f.x = Math.random() * GAME_WIDTH;
+        f.y = vh + 10;
+        f.x = Math.random() * vw;
       }
-      const sx = Phaser.Math.Wrap(f.x - cam.scrollX * 0.15, 0, GAME_WIDTH);
-      const sy = Phaser.Math.Wrap(f.y - cam.scrollY * 0.15, 0, GAME_HEIGHT);
+      const sx = Phaser.Math.Wrap(f.x - cam.scrollX * 0.15, 0, vw);
+      const sy = Phaser.Math.Wrap(f.y - cam.scrollY * 0.15, 0, vh);
       f.img.setPosition(sx, sy).setAlpha(ffAlpha * (0.5 + 0.5 * Math.sin(timeMs * 0.003 + f.phase)));
     }
   }

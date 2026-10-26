@@ -19,9 +19,17 @@ import type { SwarmEventDef } from '../../data/swarmEvents';
 import { BEHAVIOUR_CODE, spawnEnemy } from '../entities';
 import { ENEMY_FLAG } from '../RunState';
 import type { SimContext } from '../SimContext';
+import { effectiveMaxActive, type ViewSize } from './viewScale';
 
 /** Ring radius (px) around the player: off-screen at the sides, visible top/bottom of the portrait view. */
 export const RING_RADIUS = 520;
+/** Extra distance (px) beyond the short half-axis of the view for the ring on large views. */
+export const RING_EDGE_PAD = 160;
+
+/** Actual ring radius for the view: max(RING_RADIUS, min(w, h) / 2 + RING_EDGE_PAD). */
+export function ringRadiusFor(view: ViewSize): number {
+  return Math.max(RING_RADIUS, Math.min(view.width, view.height) / 2 + RING_EDGE_PAD);
+}
 /** Required gap arc length as a multiple of the player radius (2.5 × diameter). */
 export const RING_GAP_PLAYER_RADII = 5;
 /** Distance (px) between stampede rows. */
@@ -69,9 +77,9 @@ export function buildRing(count: number, radius: number, playerRadius: number, r
   return { angles, gapStart, gapSlots: g };
 }
 
-/** Free enemy slots under balance.spawn.maxActive. */
+/** Free enemy slots under the view-dependent active cap (balance.spawn.maxActive on the default view). */
 function room(ctx: SimContext): number {
-  return Math.max(0, ctx.state.config.balance.spawn.maxActive - ctx.state.enemies.count);
+  return Math.max(0, effectiveMaxActive(ctx.view, ctx.state.config.balance) - ctx.state.enemies.count);
 }
 
 function typeIndexOf(ctx: SimContext, typeId: string): number {
@@ -92,7 +100,8 @@ export function spawnRing(ctx: SimContext, def: SwarmEventDef): number {
   const typeIndex = typeIndexOf(ctx, def.typeId);
   if (typeIndex < 0) return 0;
   const p = state.player;
-  const layout = buildRing(def.count, RING_RADIUS, p.radius, state.rng.spawn.next());
+  const radius = ringRadiusFor(ctx.view);
+  const layout = buildRing(def.count, radius, p.radius, state.rng.spawn.next());
   const n = Math.min(layout.angles.length, room(ctx));
   const e = state.enemies;
   const cx = p.x;
@@ -100,7 +109,7 @@ export function spawnRing(ctx: SimContext, def: SwarmEventDef): number {
   let spawned = 0;
   for (let k = 0; k < n; k++) {
     const a = layout.angles[k];
-    const id = spawnEnemy(state, typeIndex, cx + Math.cos(a) * RING_RADIUS, cy + Math.sin(a) * RING_RADIUS);
+    const id = spawnEnemy(state, typeIndex, cx + Math.cos(a) * radius, cy + Math.sin(a) * radius);
     if (id < 0) break;
     markSwarm(ctx, id, BEHAVIOUR_CODE.ringInward);
     e.aiDirX[id] = cx;

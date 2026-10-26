@@ -17,7 +17,7 @@ describe('RunState', () => {
 
   it('allocates stores with the expected capacities', () => {
     const s = createRunState(1);
-    expect(s.enemies.capacity).toBe(BALANCE.spawn.maxActive + 1);
+    expect(s.enemies.capacity).toBe(Math.max(BALANCE.spawn.maxActive, BALANCE.spawn.maxActiveWide) + 1);
     expect(s.projectiles.capacity).toBe(600);
     expect(s.orbs.capacity).toBeGreaterThan(BALANCE.orbs.max);
     expect(s.tokens.capacity).toBeGreaterThan(0);

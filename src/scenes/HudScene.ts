@@ -8,13 +8,16 @@
  *   emits   'request-pause'                      (pause button)
  *   emits   'request-resume'                     (overlay Resume / key / auto-pause tap)
  *
- * Layout (game px, canvas 720 × 1560): everything interactive lives in the top
+ * Layout (game px; canvas ≥ 720 × 1560, Scale.EXPAND grows it to fill the window):
+ * bars are left-aligned (capped at MAX_BAR_W), the pause button hugs the right
+ * edge, and the pause overlay content is a 720-wide centred column. Everything interactive lives in the top
  * bar (≤ ~25% of the height), well above the joystick zone (lower 60%). The top
  * bar and pause button rects are registered with InputManager.setHudRects so a
  * touch there never starts the joystick (Req 14.3).
  */
 import Phaser from 'phaser';
-import { FONT, GAME_HEIGHT, GAME_WIDTH, PALETTE, RARITY_COLOR, SCENE, SFX, TEX } from '../game/keys';
+import { FONT, GAME_WIDTH, PALETTE, RARITY_COLOR, SCENE, SFX, TEX } from '../game/keys';
+import { columnLayout, keepFitted } from '../game/layout';
 import { getSession, type Session } from '../game/Session';
 import { getAudio } from '../juice/AudioManager';
 import { creditRate } from '../data/balance';
@@ -28,6 +31,10 @@ import { bossId } from '../sim/behaviours/boss';
 const BOSS_BAR_OFFSET = 100; // below T + TOP_BAR_H
 const BOSS_BAR_H = 24;
 const BOSS_COLOR = 0xff3f6a;
+/** Max width of the left HP/energy/time column and part row on wide (landscape) canvases. */
+const MAX_COL_W = 640;
+/** Max width of the (centred) boss bar on wide canvases. */
+const MAX_BOSS_W = 900;
 
 /** Minimum margin from the canvas edge / safe-area inset (game px). */
 const MARGIN = 24;
@@ -153,6 +160,7 @@ export default class HudScene extends Phaser.Scene {
   // Pause overlay.
   private overlay!: Phaser.GameObjects.Container;
   private overlayBackdrop!: Phaser.GameObjects.Rectangle;
+  private overlayContent!: Phaser.GameObjects.Container;
   private overlayTitle!: Phaser.GameObjects.Text;
   private overlayButtons: Button[] = [];
   private musicBtn!: Button;
@@ -203,6 +211,8 @@ export default class HudScene extends Phaser.Scene {
     ge.on('sim-event', this.onSimEvent, this);
     ge.on('pause-changed', this.onPauseChanged, this);
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
+    // Also catch size changes the RESIZE event misses (RUN host iframe) and keep the camera full-canvas.
+    keepFitted(this, () => this.layout());
     this.input.keyboard?.on('keydown', this.onKeyDown, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
@@ -332,10 +342,12 @@ export default class HudScene extends Phaser.Scene {
     this.bossBar = this.add.container(0, 0, [bg, this.bossBarFill, label]).setVisible(false);
   }
 
-  /** Positions the bar (container at the bar's top-left, spanning the safe width). */
+  /** Positions the bar (container at the bar's top-left), centred within the safe width. */
   private layoutBossBar(T: number, L: number, R: number): void {
-    const w = Math.max(200, GAME_WIDTH - L - R);
-    this.bossBar.setPosition(L, T + TOP_BAR_H + BOSS_BAR_OFFSET);
+    // Capped so it doesn't span a very wide screen.
+    const safeW = this.scale.width - L - R;
+    const w = Math.max(200, Math.min(MAX_BOSS_W, safeW));
+    this.bossBar.setPosition(Math.round(L + (safeW - w) / 2), T + TOP_BAR_H + BOSS_BAR_OFFSET);
     const bg = this.bossBar.getByName('bg') as Phaser.GameObjects.Rectangle | null;
     const label = this.bossBar.getByName('label') as Phaser.GameObjects.Text | null;
     bg?.setPosition(0, 0).setSize(w, BOSS_BAR_H);
@@ -380,15 +392,19 @@ export default class HudScene extends Phaser.Scene {
     });
     const btn = { bg, label };
     this.overlayButtons.push(btn);
-    this.overlay.add([bg, label]);
+    this.overlayContent.add([bg, label]);
     return btn;
   }
 
   private buildOverlay(): void {
     this.overlay = this.add.container(0, 0).setDepth(OVERLAY_DEPTH).setVisible(false);
+    // Backdrop spans the whole canvas; title + buttons sit in a GAME_WIDTH-wide
+    // column (overlayContent) that layout() centres.
     this.overlayBackdrop = this.add
-      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.65)
+      .rectangle(0, 0, this.scale.width, this.scale.height, 0x000000, 0.65)
+      .setOrigin(0, 0)
       .setInteractive();
+    this.overlayContent = this.add.container(0, 0);
     // The backdrop swallows taps; in 'auto' mode an explicit tap on it resumes (Req 1.8).
     this.overlayBackdrop.on('pointerdown', () => (this.backdropArmed = true));
     this.overlayBackdrop.on('pointerup', () => {
@@ -403,7 +419,8 @@ export default class HudScene extends Phaser.Scene {
         wordWrap: { width: GAME_WIDTH - 2 * MARGIN - 40 },
       })
       .setOrigin(0.5);
-    this.overlay.add([this.overlayBackdrop, this.overlayTitle]);
+    this.overlayContent.add(this.overlayTitle);
+    this.overlay.add([this.overlayBackdrop, this.overlayContent]);
 
     this.makeButton(680, 400, 104, 'Resume', 0xfff6a8, '#140f2e', () => this.requestResume());
     const settings = this.session.settings;
@@ -448,7 +465,8 @@ export default class HudScene extends Phaser.Scene {
     let bottom = css.bottom;
     let left = css.left;
     let right = css.right;
-    // Scale.FIT letterboxes the canvas: only the part of an inset overlapping the canvas matters.
+    // Only the part of an inset overlapping the canvas matters. With Scale.EXPAND the
+    // canvas fills the window (rect offsets ≈ 0), but this stays correct if it ever doesn't.
     const canvas = this.game.canvas;
     if (canvas && typeof canvas.getBoundingClientRect === 'function' && typeof window !== 'undefined') {
       const r = canvas.getBoundingClientRect();
@@ -473,12 +491,16 @@ export default class HudScene extends Phaser.Scene {
     const T = ins.top;
     const L = ins.left;
     const R = ins.right;
+    // Scale.EXPAND: the canvas is ≥ GAME_WIDTH × GAME_HEIGHT and grows with the window.
+    const W = this.scale.width;
+    const H = this.scale.height;
 
-    const pauseX = GAME_WIDTH - R - PAUSE_SIZE;
+    const pauseX = W - R - PAUSE_SIZE;
     this.pauseBg.setPosition(pauseX, T);
     this.pauseIcon.setPosition(pauseX + PAUSE_SIZE / 2, T + PAUSE_SIZE / 2);
 
-    const colW = Math.max(200, pauseX - GAP - L);
+    // Bars stay left-aligned at the safe inset, capped on wide screens.
+    const colW = Math.max(200, Math.min(MAX_COL_W, pauseX - GAP - L));
 
     // Fill rects have origin (0, 0); their scaleX is the fill fraction, set every frame.
     this.hpBg.setPosition(L, T).setSize(colW, HP_H);
@@ -497,18 +519,25 @@ export default class HudScene extends Phaser.Scene {
     this.killText.setPosition(L + colW, sy);
 
     this.partRow.setPosition(L, T + PART_ROW_OFFSET);
-    this.banner.setPosition(GAME_WIDTH / 2, T + TOP_BAR_H + 60);
+    this.banner.setPosition(W / 2, T + TOP_BAR_H + 60);
     this.layoutBossBar(T, L, R);
-    if (this.debugText) this.debugText.setPosition(L, GAME_HEIGHT - ins.bottom);
+    if (this.debugText) this.debugText.setPosition(L, H - ins.bottom);
+
+    // Pause overlay: full-canvas backdrop, content column centred.
+    this.overlayBackdrop.setSize(W, H);
+    const { ox, oy } = columnLayout(this);
+    this.overlayContent.setPosition(ox, oy);
 
     this.lastPhaseBucket = -1;
     this.rebuildPartRow();
 
     // HUD rects in game px (Req 14.3): top bar strip + pause button (with slop).
     const rects: Rect[] = [
-      { x: 0, y: 0, w: GAME_WIDTH, h: T + TOP_BAR_H },
+      { x: 0, y: 0, w: W, h: T + TOP_BAR_H },
       { x: pauseX - 8, y: T - 8, w: PAUSE_SIZE + 16, h: PAUSE_SIZE + 16 },
     ];
+    // Joystick zone = lower 60% of the whole (possibly wide) canvas.
+    this.session.input.setScreenSize(W, H);
     this.session.input.setHudRects(rects);
   }
 
@@ -532,7 +561,7 @@ export default class HudScene extends Phaser.Scene {
       entries.push({ key: def?.spriteKey ?? id, level: 0, dim: false, epic: true });
     }
 
-    const avail = GAME_WIDTH - this.insets.left - this.insets.right;
+    const avail = Math.min(MAX_COL_W, this.scale.width - this.insets.left - this.insets.right);
     const step = entries.length > 1 ? Math.min(ICON_STEP, (avail - ICON) / (entries.length - 1)) : ICON_STEP;
     const objs: Array<Phaser.GameObjects.Rectangle | Phaser.GameObjects.Image | Phaser.GameObjects.Text> = [];
     entries.forEach((e, i) => {

@@ -6,7 +6,9 @@
  *   movement; later systems (separation, merge, abilities, projectiles,
  *   contact) query it. Ids in the hash are enemy slot ids.
  * - `view` is the visible camera rectangle size in world px, centred on the
- *   player (portrait 720×1560 logical canvas).
+ *   player. Defaults to the portrait 720×1560 canvas (tests, headless); GameScene
+ *   mutates it every frame to the live camera size before sim.advance(). Systems
+ *   must read it at call time (never cache it in module constants).
  * - Damage to enemies is queued and applied by DamageSystem (see damageQueue).
  */
 import type { RunState } from './RunState';

@@ -10,7 +10,8 @@
  *   listens 'request-resume' → sim.resume() + audio   (HUD pause overlay only)
  */
 import Phaser from 'phaser';
-import { DEPTH, FONT, GAME_HEIGHT, GAME_WIDTH, PALETTE, SCENE } from '../game/keys';
+import { DEPTH, FONT, GAME_WIDTH, PALETTE, SCENE } from '../game/keys';
+import { fitCameraToCanvas } from '../game/layout';
 import { getSession, type Session } from '../game/Session';
 import { getAudio } from '../juice/AudioManager';
 import { JuiceSystem } from '../juice/JuiceSystem';
@@ -95,6 +96,8 @@ export default class GameScene extends Phaser.Scene {
     this.player = new PlayerRenderer(this, state);
     this.joystick = new JoystickView(this, session.input.joystickRadius);
     this.adapter = new InputAdapter(this);
+    this.adapter.isOverHud = (x, y) =>
+      session.input.getHudRects().some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
     const enemies = state.config.enemies;
     this.juice = new JuiceSystem(this, {
       enemyColor: (i) => ENEMY_COLORS[enemies[i]?.id ?? ''] ?? ENEMY_COLOR_FALLBACK,
@@ -133,6 +136,17 @@ export default class GameScene extends Phaser.Scene {
     const session = this.session;
     const sim = session.sim;
     const state = sim.state;
+
+    // 0. View size contract: the sim reads ctx.view (world px, zoom 1) for spawn
+    // distances/density, so mirror the current camera size before advancing.
+    const cam = this.cameras.main;
+    fitCameraToCanvas(this); // camera can be created at a stale size on restart in the RUN host
+    const view = sim.ctx.view;
+    const zoom = cam.zoom || 1;
+    view.width = cam.width / zoom;
+    view.height = cam.height / zoom;
+    // Joystick activation zone spans the whole (possibly wide) canvas.
+    session.input.setScreenSize(this.scale.width, this.scale.height);
 
     // 1. Input.
     const raw = this.adapter.read();
@@ -302,10 +316,13 @@ export default class GameScene extends Phaser.Scene {
     } catch {
       console.error('[GameScene] frame error', err);
     }
-    const cx = GAME_WIDTH / 2;
-    const cy = GAME_HEIGHT / 2;
+    const sw = this.scale.width;
+    const sh = this.scale.height;
+    const cx = sw / 2;
+    const cy = sh / 2;
     const top = DEPTH.overlay + 20;
-    this.add.rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.6).setScrollFactor(0).setDepth(top);
+    // Oversized so it still covers the screen if the window grows afterwards.
+    this.add.rectangle(cx, cy, sw * 4, sh * 4, 0x000000, 0.6).setScrollFactor(0).setDepth(top);
     this.add
       .text(cx, cy - 60, 'Something broke — restart run', {
         fontFamily: FONT,

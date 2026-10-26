@@ -8,7 +8,7 @@
  *   const alpha = sim.advance(deltaSec); // runs 0..5 fixed steps
  *   if (sim.state.paused === 'menu') open UpgradeScene
  */
-import { GAME_CONFIG, type GameConfig } from '../data';
+import { GAME_CONFIG, viewDensityScale, type GameConfig } from '../data';
 import { resetAbilityState } from './abilities/types';
 import { FixedStepLoop } from './FixedStepLoop';
 import { createRunState, resetRunState, type PauseKind, type RunState } from './RunState';
@@ -167,6 +167,8 @@ export class Sim {
 
   private step(dt: number): void {
     const ctx = this.ctx;
+    // Wide screens spawn more monsters; the player adapts by the same factor (1 on portrait).
+    this.state.player.viewBoost = viewDensityScale(ctx.view, this.state.config.balance);
     // All systems run every step; each guards on `outcome` itself. A menu pause
     // set by EnergySystem (last) stops the loop before the next step.
     for (let i = 0; i < this.systems.length; i++) this.systems[i](ctx, dt);
