@@ -49,7 +49,15 @@ export interface RawInput {
   touchEvent: boolean;
   /** A movement key press occurred this frame. */
   keyEvent: boolean;
+  /**
+   * Mouse (desktop) hold-to-move: while the button is held, the player walks
+   * toward the cursor. Mouse input never switches to touch mode or shows the joystick.
+   */
+  mouse?: { active: boolean; x: number; y: number };
 }
+
+/** Cursor distance from the screen centre (px) that maps to full speed. */
+export const MOUSE_FULL_SPEED_DIST = 160;
 
 export interface Rect {
   x: number;
@@ -102,8 +110,9 @@ export class InputManager {
   readonly joystickRadius: number;
   readonly deadZone: number;
   readonly zoneFraction: number;
-  readonly screenWidth: number;
-  readonly screenHeight: number;
+  /** Logical screen size; updated via setScreenSize() when the canvas resizes. */
+  screenWidth: number;
+  screenHeight: number;
   private hudRects: Rect[];
 
   /** Reused return value of `update()`. */
@@ -124,6 +133,12 @@ export class InputManager {
     this.screenWidth = opts.screenWidth ?? SCREEN_WIDTH;
     this.screenHeight = opts.screenHeight ?? SCREEN_HEIGHT;
     this.hudRects = (opts.hudRects ?? []).map((r) => ({ ...r }));
+  }
+
+  /** Updates the logical screen size used by the activation zone (canvas resize). */
+  setScreenSize(width: number, height: number): void {
+    if (Number.isFinite(width) && width > 0) this.screenWidth = width;
+    if (Number.isFinite(height) && height > 0) this.screenHeight = height;
   }
 
   setHudRects(rects: Rect[]): void {
@@ -156,7 +171,14 @@ export class InputManager {
     this.trackGesture(raw.touch);
 
     const v = this.vector;
-    if (this.mode === 'keyboard') {
+    const m = raw.mouse;
+    if (m && m.active) {
+      // Hold-to-move with the mouse. Held movement keys still take priority.
+      if (this.mode === 'touch') this.mode = 'keyboard';
+      this.hideJoystick();
+      this.keyboardVector(raw.keys, v);
+      if (v.x === 0 && v.y === 0) this.mouseVector(m.x, m.y, v);
+    } else if (this.mode === 'keyboard') {
       this.hideJoystick();
       this.keyboardVector(raw.keys, v);
     } else {
@@ -233,6 +255,21 @@ export class InputManager {
       out.x = dx / r;
       out.y = dy / r;
     }
+  }
+
+  /** Vector from the screen centre (where the camera keeps the player) toward the cursor. */
+  private mouseVector(x: number, y: number, out: Vec2): void {
+    const dx = x - this.screenWidth / 2;
+    const dy = y - this.screenHeight / 2;
+    const dist = Math.hypot(dx, dy);
+    if (dist < this.deadZone * 3) {
+      out.x = 0;
+      out.y = 0;
+      return;
+    }
+    const k = Math.min(1, dist / MOUSE_FULL_SPEED_DIST) / dist;
+    out.x = dx * k;
+    out.y = dy * k;
   }
 
   private hideJoystick(): void {

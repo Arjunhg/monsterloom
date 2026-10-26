@@ -8,7 +8,8 @@
  */
 import Phaser from 'phaser';
 import { describeLevelUp } from '../game/describe';
-import { FONT, GAME_HEIGHT, GAME_WIDTH, PALETTE, RARITY_COLOR, SCENE, SFX, TEX } from '../game/keys';
+import { FONT, GAME_WIDTH, PALETTE, RARITY_COLOR, SCENE, SFX, TEX } from '../game/keys';
+import { columnLayout, keepFitted } from '../game/layout';
 import { getSession } from '../game/Session';
 import { getAudio } from '../juice/AudioManager';
 import type { RunState } from '../sim/RunState';
@@ -66,6 +67,7 @@ export default class UpgradeScene extends Phaser.Scene {
   private offers: UpgradeOffer[] = [];
   private cards: Phaser.GameObjects.Container[] = [];
   private root!: Phaser.GameObjects.Container;
+  private backdrop: Phaser.GameObjects.Rectangle | null = null;
   private ready = false;
   private done = false;
   private pressed = -1;
@@ -81,6 +83,7 @@ export default class UpgradeScene extends Phaser.Scene {
     this.ready = false;
     this.done = false;
     this.pressed = -1;
+    this.backdrop = null;
 
     const session = getSession();
     const state = session.sim.state;
@@ -93,15 +96,20 @@ export default class UpgradeScene extends Phaser.Scene {
     // Drawn once per menu (not on resize / re-layout).
     this.offers = drawOffers(state, state.rng.upgrades, 3);
 
+    // Content lives in a GAME_WIDTH-wide column (root, local coords); the backdrop
+    // covers the whole canvas. Resizes only re-position these two (offers stay drawn).
     const cx = GAME_WIDTH / 2;
-    this.root = this.add.container(0, 0);
-
-    const backdrop = this.add.rectangle(cx, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.65);
+    const backdrop = (this.backdrop = this.add
+      .rectangle(0, 0, this.scale.width, this.scale.height, 0x000000, 0.65)
+      .setOrigin(0, 0));
     backdrop.setInteractive(); // swallow taps so they don't reach the HUD below
     backdrop.on('pointerup', () => {
       this.pressed = -1;
     });
-    this.root.add(backdrop);
+    this.root = this.add.container(0, 0);
+    this.relayout();
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.relayout, this);
+    keepFitted(this, () => this.relayout());
 
     const firstTop = CARD_CENTER_Y - CARD_H - CARD_GAP - CARD_H / 2;
     const title = this.add
@@ -277,7 +285,15 @@ export default class UpgradeScene extends Phaser.Scene {
     else this.scene.stop();
   }
 
+  /** Canvas resize: stretch the backdrop and re-centre the content column (no redraw). */
+  private relayout(): void {
+    const { width, height, ox, oy } = columnLayout(this);
+    this.backdrop?.setSize(width, height);
+    this.root?.setPosition(ox, oy);
+  }
+
   private onShutdown(): void {
+    this.scale.off(Phaser.Scale.Events.RESIZE, this.relayout, this);
     this.input.keyboard?.off('keydown', this.onKeyDown, this);
     this.tweens.killAll();
     this.cards = [];

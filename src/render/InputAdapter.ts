@@ -22,6 +22,10 @@ export class InputAdapter {
   };
   private readonly touch = { active: false, originX: 0, originY: 0, x: 0, y: 0 };
   private trackedId = -1;
+  private readonly mouse = { active: false, x: 0, y: 0 };
+  private mouseId = -1;
+  /** Optional HUD hit test (set by GameScene) so clicks on HUD controls don't move the player. */
+  isOverHud?: (x: number, y: number) => boolean;
   private touchEventPending = false;
   private readonly keys: Array<{ key: Phaser.Input.Keyboard.Key; dir: KeyName }> = [];
   private readonly prevDown: boolean[] = [];
@@ -68,6 +72,12 @@ export class InputAdapter {
     raw.touchEvent = this.touchEventPending;
     this.touchEventPending = false;
     raw.touch = this.touch.active ? this.touch : undefined;
+    // The mouse button can be released outside the canvas without an event; trust the live state.
+    if (this.mouse.active && !this.scene.input.mousePointer?.isDown) {
+      this.mouse.active = false;
+      this.mouseId = -1;
+    }
+    raw.mouse = this.mouse.active ? this.mouse : undefined;
     return raw;
   }
 
@@ -79,6 +89,17 @@ export class InputAdapter {
   }
 
   private onDown(p: Phaser.Input.Pointer): void {
+    if (!p.wasTouch) {
+      // Desktop mouse: hold-to-move toward the cursor (not a joystick), unless the
+      // press starts on a HUD control such as the pause button.
+      if (this.isOverHud?.(p.x, p.y)) return;
+      this.mouseId = p.id;
+      const m = this.mouse;
+      m.active = true;
+      m.x = p.x;
+      m.y = p.y;
+      return;
+    }
     this.touchEventPending = true;
     if (this.trackedId !== -1) return;
     this.trackedId = p.id;
@@ -89,6 +110,13 @@ export class InputAdapter {
   }
 
   private onMove(p: Phaser.Input.Pointer): void {
+    if (!p.wasTouch) {
+      if (p.id === this.mouseId) {
+        this.mouse.x = p.x;
+        this.mouse.y = p.y;
+      }
+      return;
+    }
     // A hovering mouse is not a touch interaction.
     if (!p.isDown && p.id !== this.trackedId) return;
     this.touchEventPending = true;
@@ -98,6 +126,13 @@ export class InputAdapter {
   }
 
   private onUp(p: Phaser.Input.Pointer): void {
+    if (!p.wasTouch) {
+      if (p.id === this.mouseId) {
+        this.mouseId = -1;
+        this.mouse.active = false;
+      }
+      return;
+    }
     this.touchEventPending = true;
     if (p.id !== this.trackedId) return;
     this.trackedId = -1;

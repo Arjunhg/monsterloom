@@ -17,7 +17,19 @@ export interface Balance {
    */
   credits: { base: number; lin: number; quad: number; maxCarry: number; specialRate: number };
   hpScale: { perMinute: number };
-  spawn: { maxActive: number; marginMin: number; marginMax: number; despawnMul: number };
+  /**
+   * maxActive is the cap on the default 720×1560 view. Larger views earn credits faster
+   * (× viewDensityScale, capped at wideBoostMax) and the cap becomes
+   * min(maxActiveWide, round(maxActive × scale)) (see src/sim/systems/viewScale.ts).
+   */
+  spawn: {
+    maxActive: number;
+    maxActiveWide: number;
+    wideBoostMax: number;
+    marginMin: number;
+    marginMax: number;
+    despawnMul: number;
+  };
   orbs: { max: number; magnetSpeed: number };
   rarityWeights: { common: number; rare: number; epic: number };
   /** maxTier: 1 in v1, 3 in v2 */
@@ -35,7 +47,7 @@ export const BALANCE: Balance = {
   threshold: { base: 6, lin: 4, pow: 1.2, exp: 1.35 },
   credits: { base: 0.6, lin: 0.004, quad: 0.000012, maxCarry: 6, specialRate: 0.6 },
   hpScale: { perMinute: 0.18 },
-  spawn: { maxActive: 400, marginMin: 48, marginMax: 120, despawnMul: 1.6 },
+  spawn: { maxActive: 400, maxActiveWide: 600, wideBoostMax: 1.5, marginMin: 48, marginMax: 120, despawnMul: 1.6 },
   orbs: { max: 300, magnetSpeed: 420 },
   rarityWeights: { common: 70, rare: 24, epic: 6 },
   merge: { maxTier: 3, contactSec: 1.0, hpMult: 1.1, maxPerStep: 8 },
@@ -69,4 +81,22 @@ export function creditRate(t: number, cfg: Balance = BALANCE): number {
 /** Enemy HP multiplier at elapsed time t in seconds (Req 12.2). */
 export function hpScaleAt(t: number, cfg: Balance = BALANCE): number {
   return 1 + cfg.hpScale.perMinute * (Math.max(0, t) / 60);
+}
+
+/** Reference view area (default portrait 720×1560 canvas) for viewDensityScale. */
+export const BASE_VIEW_AREA = 720 * 1560;
+
+/**
+ * Spawn density multiplier for a view size (world px):
+ * clamp(sqrt(width × height / (720 × 1560)), 1, spawn.wideBoostMax). Exactly 1 on the
+ * default portrait view and on anything smaller.
+ */
+export function viewDensityScale(view: { width: number; height: number }, cfg: Balance = BALANCE): number {
+  // Portrait screens (phones, including tall ones) keep the tuned v1 density exactly.
+  if (!(view.width > view.height)) return 1;
+  const area = view.width * view.height;
+  const raw = area > 0 ? Math.sqrt(area / BASE_VIEW_AREA) : 1;
+  const max = Math.max(1, cfg.spawn.wideBoostMax);
+  if (!(raw > 1)) return 1;
+  return raw < max ? raw : max;
 }

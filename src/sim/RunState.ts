@@ -356,6 +356,12 @@ export interface PlayerState {
   lastDirY: number;
   /** Base pickup radius (px) before the pickupRadius multiplier. */
   pickupRadius: number;
+  /**
+   * Wide-screen adaptation (= viewDensityScale of the live view, 1 on portrait):
+   * multiplies damage dealt, energy collected and pickup radius so the player
+   * keeps up with the extra monsters on big screens. Set by Sim each step.
+   */
+  viewBoost: number;
   stats: StatMultipliers;
 }
 
@@ -439,9 +445,11 @@ export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG):
       lastDirX: 1,
       lastDirY: 0,
       pickupRadius: b.player.pickupRadius,
+      viewBoost: 1,
       stats: defaultStats(),
     },
-    enemies: new EnemyStore(b.spawn.maxActive + 1), // +1 boss slot
+    // Sized for the widest view's cap (+1 boss slot); the director enforces the view-dependent cap.
+    enemies: new EnemyStore(Math.max(b.spawn.maxActive, b.spawn.maxActiveWide) + 1),
     projectiles: new ProjectileStore(PROJECTILE_CAPACITY),
     orbs: new OrbStore(Math.max(ORB_CAPACITY, b.orbs.max + 1)),
     tokens: new TokenStore(TOKEN_CAPACITY),
@@ -487,6 +495,7 @@ export function resetRunState(state: RunState, seed?: number): void {
   p.lastDirX = 1;
   p.lastDirY = 0;
   p.pickupRadius = b.player.pickupRadius;
+  p.viewBoost = 1;
   Object.assign(p.stats, defaultStats());
 
   state.enemies.reset();

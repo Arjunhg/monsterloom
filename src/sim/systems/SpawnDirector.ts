@@ -17,7 +17,10 @@
  *     Each lane is capped at maxCarry + (max threatCost in that lane's pool), so
  *     spawned cost per window ≤ ∫(rate) + cap per lane (5.3, 5.4). The lanes keep
  *     expensive v2 monsters from starving the regular horde.
- *  4. Spawning: while credits ≥ cheapest cost in pool and active < maxActive,
+ *     Both lanes' earn rates are multiplied by viewDensityScale(ctx.view) (1 on the
+ *     default 720×1560 view, up to spawn.wideBoostMax on wide screens).
+ *  4. Spawning: while credits ≥ cheapest cost in pool and active < the effective cap
+ *     (effectiveMaxActive(ctx.view): maxActive at scale 1 → maxActiveWide at max boost),
  *     pick a type uniformly (weight 1) from the whole pool via rng.spawn. If it
  *     costs more than the current credits it stays pending and the director
  *     saves up (otherwise cheap types would always consume credits first and
@@ -43,6 +46,9 @@ import { ENEMY_FLAG, type RunState } from '../RunState';
 import type { SeededRNG } from '../rng/SeededRNG';
 import type { SimContext, System } from '../SimContext';
 import { spawnSwarmEvent } from './swarm';
+import { effectiveMaxActiveFor, viewDensityScale } from './viewScale';
+
+export { effectiveMaxActive, effectiveMaxActiveFor, viewDensityScale, viewDistanceScale } from './viewScale';
 
 /** Debug/test hook invoked after every credit-funded spawn. */
 export type SpawnRecorder = (
@@ -219,17 +225,20 @@ export const spawnDirector: System = (ctx, dt) => {
   runSwarms(ctx, pools);
   const b = state.config.balance;
   const d = state.director;
-  const rate = creditRate(state.clock.elapsed, b);
+  // Bigger views earn credits faster and allow more enemies (exactly 1 / maxActive on 720×1560).
+  const density = viewDensityScale(ctx.view, b);
+  const maxActive = effectiveMaxActiveFor(density, b);
+  const rate = creditRate(state.clock.elapsed, b) * density;
 
   // Horde lane first so the regular monsters keep their v1 density.
   if (pools.horde.types.length > 0) {
     d.credits = Math.min(d.credits + rate * dt, b.credits.maxCarry + pools.horde.maxCost);
-    d.credits = runLane(ctx, pools.horde, d.credits);
+    d.credits = runLane(ctx, pools.horde, d.credits, maxActive);
   }
   if (pools.special.types.length > 0) {
     const cap = b.credits.maxCarry + pools.special.maxCost;
     d.specialCredits = Math.min(d.specialCredits + rate * b.credits.specialRate * dt, cap);
-    d.specialCredits = runLane(ctx, pools.special, d.specialCredits);
+    d.specialCredits = runLane(ctx, pools.special, d.specialCredits, maxActive);
   }
 };
 
@@ -259,7 +268,7 @@ function runSwarms(ctx: SimContext, cache: PoolCache): void {
 }
 
 /** Spends a lane's credits on spawns (steps 4–5 above). Returns the remaining credits. */
-function runLane(ctx: SimContext, pool: Lane, credits: number): number {
+function runLane(ctx: SimContext, pool: Lane, credits: number, maxActive: number): number {
   const state = ctx.state;
   const b = state.config.balance;
   const t = state.clock.elapsed;
@@ -269,7 +278,7 @@ function runLane(ctx: SimContext, pool: Lane, credits: number): number {
   const rng = state.rng.spawn;
   const p = state.player;
   const chance = eliteChance(t, b);
-  while (d.credits >= pool.minCost && state.enemies.count < b.spawn.maxActive) {
+  while (d.credits >= pool.minCost && state.enemies.count < maxActive) {
     if (pool.pending < 0) pool.pending = rng.weighted(pool.types, () => 1) ?? -1;
     const typeIndex = pool.pending;
     if (typeIndex < 0) break;
@@ -277,7 +286,7 @@ function runLane(ctx: SimContext, pool: Lane, credits: number): number {
     const cost = type.threatCost;
     // Groups (bats, Req 22.3) spawn together: save up for the whole group (bounded
     // by free slots and by the carry cap so the pick can always be afforded).
-    const room = b.spawn.maxActive - state.enemies.count;
+    const room = maxActive - state.enemies.count;
     const groupSize = Math.max(1, Math.floor(type.behaviourParams?.groupSize ?? 1));
     const want = Math.min(groupSize, room);
     // Save up for the pending pick (the credit cap always leaves room for the max cost).

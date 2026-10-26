@@ -53,6 +53,13 @@ export function validateConfig(cfg: GameConfig, opts: ValidateOptions = {}): str
     errors.push(`run.durationSec (${r.durationSec}) must be within [${r.minSec}, ${r.maxSec}]`);
   }
 
+  // Wide-view density (dynamic view size).
+  const sp = balance.spawn;
+  if (!(sp.maxActiveWide >= sp.maxActive)) {
+    errors.push(`spawn.maxActiveWide (${sp.maxActiveWide}) must be >= spawn.maxActive (${sp.maxActive})`);
+  }
+  if (!(sp.wideBoostMax >= 1)) errors.push(`spawn.wideBoostMax must be >= 1 (got ${sp.wideBoostMax})`);
+
   if (!(balance.merge.maxTier >= 1)) errors.push(`merge.maxTier must be >= 1 (got ${balance.merge.maxTier})`);
 
   // Body parts.
