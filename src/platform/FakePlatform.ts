@@ -7,11 +7,15 @@ import { MemoryStubs } from './MemoryStubs';
 import type {
   CdnFetchOptions,
   FullscreenCapability,
+  GetLeaderboardOptions,
   LeaderboardResult,
   PlatformService,
   PlatformSubscription,
   PurchaseResult,
   SharePayload,
+  ShareResult,
+  SubmitScoreOptions,
+  SubmitScoreOutcome,
 } from './PlatformService';
 
 export interface TrackedEvent {
@@ -32,6 +36,16 @@ export interface FakePlatformOptions {
   launchParams?: Record<string, string>;
   /** Echo log() to console. Default false. */
   echoLogs?: boolean;
+  /** Initial paymentsSupported() value. Default false. */
+  paymentsSupported?: boolean;
+}
+
+/** Async v3 methods that support one-shot failure injection via failNext(). */
+export type FakeFailureMethod = 'load' | 'save' | 'submitScore' | 'getLeaderboard' | 'share' | 'purchase';
+
+export interface RecordedPurchase {
+  sku: string;
+  idempotencyKey?: string;
 }
 
 export class FakePlatform implements PlatformService {
@@ -42,17 +56,25 @@ export class FakePlatform implements PlatformService {
   fullscreenCap: FullscreenCapability = 'unavailable';
   /** Number of times a 'toggleable' host fullscreen call would have been made. */
   fullscreenRequests = 0;
+  /** Test-controlled paymentsSupported() value. */
+  paymentsEnabled: boolean;
+  /** Outcome returned by purchase() while payments are enabled. Default 'ok'. */
+  purchaseResult: PurchaseResult = 'ok';
+  /** Every purchase() call, in order. */
+  readonly purchases: RecordedPurchase[] = [];
 
   private readonly pauseCbs = new Set<() => void>();
   private readonly resumeCbs = new Set<() => void>();
   private readonly mem = new MemoryStubs();
   private readonly cdnAssets: Map<string, Blob>;
   private readonly launchParams: Record<string, string>;
+  private readonly pendingFailures = new Map<FakeFailureMethod, Error>();
   private readonly echoLogs: boolean;
 
   constructor(opts: FakePlatformOptions = {}) {
     this.cdnAssets = new Map(Object.entries(opts.cdnAssets ?? {}));
     this.launchParams = { ...(opts.launchParams ?? {}) };
+    this.paymentsEnabled = opts.paymentsSupported ?? false;
     this.echoLogs = opts.echoLogs ?? false;
   }
 
@@ -72,6 +94,28 @@ export class FakePlatform implements PlatformService {
 
   setCdnAsset(path: string, blob: Blob): void {
     this.cdnAssets.set(path, blob);
+  }
+
+  /**
+   * Make the next call to `method` fail once, mirroring a host/storage error.
+   * Storage/leaderboard/share calls reject; purchase resolves 'failed'
+   * instead, matching RundotPlatform's never-rejects purchase contract.
+   */
+  failNext(method: FakeFailureMethod, error?: Error): void {
+    this.pendingFailures.set(method, error ?? new Error(`FakePlatform: injected ${method} failure`));
+  }
+
+  private throwIfFailing(method: FakeFailureMethod): void {
+    const err = this.pendingFailures.get(method);
+    if (!err) return;
+    this.pendingFailures.delete(method);
+    throw err;
+  }
+
+  private consumeFailure(method: FakeFailureMethod): boolean {
+    if (!this.pendingFailures.has(method)) return false;
+    this.pendingFailures.delete(method);
+    return true;
   }
 
   // ---- v1 ------------------------------------------------------------------
@@ -117,36 +161,44 @@ export class FakePlatform implements PlatformService {
   }
 
   // ---- v3 ------------------------------------------------------------------
-  load<T>(key: string): Promise<T | null> {
+  async load<T>(key: string): Promise<T | null> {
+    this.throwIfFailing('load');
     return this.mem.load<T>(key);
   }
 
-  save<T>(key: string, value: T): Promise<void> {
+  async save<T>(key: string, value: T): Promise<void> {
+    this.throwIfFailing('save');
     return this.mem.save(key, value);
   }
 
-  submitScore(board: string, score: number, meta?: Record<string, unknown>): Promise<void> {
-    return this.mem.submitScore(board, score, meta);
+  async submitScore(board: string, score: number, opts: SubmitScoreOptions): Promise<SubmitScoreOutcome> {
+    this.throwIfFailing('submitScore');
+    return this.mem.submitScore(board, score, opts);
   }
 
-  getLeaderboard(board: string): Promise<LeaderboardResult> {
-    return this.mem.getLeaderboard(board);
+  async getLeaderboard(board: string, opts?: GetLeaderboardOptions): Promise<LeaderboardResult> {
+    this.throwIfFailing('getLeaderboard');
+    return this.mem.getLeaderboard(board, opts);
   }
 
-  share(payload: SharePayload): Promise<void> {
+  async share(payload: SharePayload): Promise<ShareResult> {
+    this.throwIfFailing('share');
     return this.mem.share(payload);
   }
 
-  getLaunchParams(): Record<string, string> {
+  async getLaunchParams(): Promise<Record<string, string>> {
     return { ...this.launchParams };
   }
 
   paymentsSupported(): boolean {
-    return this.mem.paymentsSupported();
+    return this.paymentsEnabled;
   }
 
-  purchase(sku: string): Promise<PurchaseResult> {
-    return this.mem.purchase(sku);
+  async purchase(sku: string, idempotencyKey?: string): Promise<PurchaseResult> {
+    this.purchases.push(idempotencyKey === undefined ? { sku } : { sku, idempotencyKey });
+    if (this.consumeFailure('purchase')) return 'failed';
+    if (!this.paymentsEnabled) return 'failed';
+    return this.purchaseResult;
   }
 }
 
