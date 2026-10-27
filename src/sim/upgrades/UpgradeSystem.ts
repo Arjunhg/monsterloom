@@ -2,8 +2,8 @@
  * UpgradeSystem (design "UpgradeSystem", Req 9, 10, 11, 12.1).
  *
  * Builds the eligible offer pool, draws distinct Upgrade_Offers with weighted
- * rarity, and applies the chosen offer to the RunState. Reroll/ban are v2
- * (task 16.1). Mutation candidates and application are supplied by hooks
+ * rarity, and applies the chosen offer to the RunState. Reroll/ban (Req 25,
+ * task 16.1) redraw offers and spend run counters. Mutation candidates and application are supplied by hooks
  * (task 7.6) so this module has no dependency on the mutation system.
  *
  * Decisions:
@@ -209,8 +209,11 @@ function pickWeighted(rng: SeededRNG, items: Candidate[]): Candidate {
  * Non-fallback offers are pairwise distinct.
  */
 export function drawOffers(state: RunState, rng: SeededRNG, count = 3): UpgradeOffer[] {
+  return drawFromPool(state, rng, count, eligiblePool(state));
+}
+
+function drawFromPool(state: RunState, rng: SeededRNG, count: number, pool: Candidate[]): UpgradeOffer[] {
   const offers: UpgradeOffer[] = [];
-  const pool = eligiblePool(state);
   const remaining: Candidate[] = [];
   for (const c of pool) {
     if (c.kind === 'mutation') {
@@ -243,6 +246,53 @@ export function drawOffers(state: RunState, rng: SeededRNG, count = 3): UpgradeO
 
   while (offers.length < count) offers.push({ ...FALLBACK_HEAL_OFFER });
   return offers;
+}
+
+// ---------------------------------------------------------------------------
+// Reroll / ban (Req 25)
+// ---------------------------------------------------------------------------
+/** True if `offer` may be banned right now: a Ban is left and it's a new (unowned, unbanned) part (Req 25.5, 25.6). */
+export function canBan(state: RunState, offer: UpgradeOffer | undefined): boolean {
+  if (!offer || state.build.bans <= 0 || offer.kind !== 'newPart' || offer.partId === undefined) return false;
+  return !state.build.parts.has(offer.partId) && !state.build.banned.has(offer.partId);
+}
+
+/**
+ * Replaces all offers (Req 25.2). Returns null and changes nothing when no Reroll
+ * is left (25.4). Prefers candidates not currently shown; falls back to the full
+ * pool when that would leave fewer than `current.length` candidates. Forced
+ * mutation offers are never excluded, so a mutation stays offered.
+ */
+export function rerollOffers(state: RunState, rng: SeededRNG, current: readonly UpgradeOffer[]): UpgradeOffer[] | null {
+  if (state.build.rerolls <= 0) return null;
+  state.build.rerolls--;
+  const count = current.length;
+  const shown = new Set(current.filter((o) => o.kind !== 'fallbackHeal' && o.kind !== 'mutation').map(candidateKey));
+  const pool = eligiblePool(state);
+  const fresh = pool.filter((c) => c.kind === 'mutation' || !shown.has(candidateKey(c)));
+  return drawFromPool(state, rng, count, fresh.length >= count ? fresh : pool);
+}
+
+/**
+ * Bans the new part offered in `slot` (Req 25.3): adds it to `banned`, decrements
+ * Bans and redraws only that slot with a candidate not already shown (fallbackHeal
+ * if none). Returns null and changes nothing when the offer can't be banned.
+ */
+export function banOffer(
+  state: RunState,
+  rng: SeededRNG,
+  current: readonly UpgradeOffer[],
+  slot: number,
+): UpgradeOffer[] | null {
+  const offer = current[slot];
+  if (!canBan(state, offer) || offer.partId === undefined) return null;
+  state.build.banned.add(offer.partId);
+  state.build.bans--;
+  const shown = new Set(current.filter((o) => o.kind !== 'fallbackHeal').map(candidateKey));
+  const pool = eligiblePool(state).filter((c) => !shown.has(candidateKey(c)));
+  const next = current.slice();
+  next[slot] = drawFromPool(state, rng, 1, pool)[0];
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,4 +330,11 @@ export function applyOffer(state: RunState, offer: UpgradeOffer): void {
   clampStats(state.player.stats, state.config.balance.caps);
 }
 
-export const UpgradeSystem = { eligiblePool, drawOffers, apply: applyOffer };
+export const UpgradeSystem = {
+  eligiblePool,
+  drawOffers,
+  apply: applyOffer,
+  reroll: rerollOffers,
+  ban: banOffer,
+  canBan,
+};

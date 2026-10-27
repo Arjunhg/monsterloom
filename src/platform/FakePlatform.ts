@@ -6,6 +6,7 @@
 import { MemoryStubs } from './MemoryStubs';
 import type {
   CdnFetchOptions,
+  FullscreenCapability,
   LeaderboardResult,
   PlatformService,
   PlatformSubscription,
@@ -37,6 +38,10 @@ export class FakePlatform implements PlatformService {
   readonly logs: string[] = [];
   readonly events: TrackedEvent[] = [];
   readonly funnelSteps: FunnelStep[] = [];
+  /** Test-controlled fullscreen capability (RundotPlatform mirrors this). */
+  fullscreenCap: FullscreenCapability = 'unavailable';
+  /** Number of times a 'toggleable' host fullscreen call would have been made. */
+  fullscreenRequests = 0;
 
   private readonly pauseCbs = new Set<() => void>();
   private readonly resumeCbs = new Set<() => void>();
@@ -98,6 +103,17 @@ export class FakePlatform implements PlatformService {
     const blob = this.cdnAssets.get(path);
     if (!blob) throw new Error(`FakePlatform: CDN asset not found: ${path}`);
     return blob;
+  }
+
+  fullscreenCapability(): FullscreenCapability {
+    return this.fullscreenCap;
+  }
+
+  async requestFullscreen(): Promise<boolean> {
+    if (this.fullscreenCap === 'always-on') return true;
+    if (this.fullscreenCap !== 'toggleable') return false;
+    this.fullscreenRequests++;
+    return true;
   }
 
   // ---- v3 ------------------------------------------------------------------
