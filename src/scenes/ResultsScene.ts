@@ -295,6 +295,8 @@ export default class ResultsScene extends Phaser.Scene {
     this.click();
     const session = getSession();
     // In-place reset (Req 15.2–15.3); new random seed unless ?seed= pins it.
+    // Re-enter fullscreen if the player left it since the run started.
+    void session.platform.requestFullscreen();
     session.sim.restart(session.flags.seed);
     this.scene.start(SCENE.game);
   }

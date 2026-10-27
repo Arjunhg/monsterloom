@@ -69,7 +69,10 @@ async function bootstrap(): Promise<void> {
         // EXPAND: 720×1560 is the minimum logical area; the canvas grows along the
         // longer window axis so it always fills the window (no letterbox bars).
         mode: SCALE_EXPAND,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
+        // NO_CENTER: the EXPAND canvas exactly fills #app (pinned to the
+        // viewport in style.css), so centering margins are always 0; Phaser's
+        // margin math on a stale measurement would only shift the canvas.
+        autoCenter: Phaser.Scale.NO_CENTER,
       },
     };
 
@@ -101,37 +104,66 @@ void bootstrap();
 function watchHostSize(game: Phaser.Game): void {
   const app = document.getElementById('app');
   if (!app) return;
-  let pending = false;
+  // The RUN embedded-library Phaser build (phaser@3.90.0 from the host CDN)
+  // has an EXPAND branch that updates baseSize and the canvas but NOT
+  // gameSize, unlike the npm build used locally. Everything in the game read
+  // scene.scale.width (= gameSize), so on the deployed build the logical
+  // size stayed 720×1560 inside a wide canvas: a portrait strip at the left.
+  // Mirror baseSize into gameSize whenever Phaser refreshes the scale.
+  const syncLogicalSize = (): void => {
+    if (game.scale.scaleMode !== SCALE_EXPAND) return;
+    const bs = game.scale.baseSize;
+    const gs = game.scale.gameSize;
+    if (Math.abs(gs.width - bs.width) > 1 || Math.abs(gs.height - bs.height) > 1) {
+      gs.setSize(bs.width, bs.height);
+    }
+  };
+  game.scale.on(Phaser.Scale.Events.RESIZE, syncLogicalSize);
   const check = (): void => {
-    if (pending) return;
+    syncLogicalSize();
+    const cv = game.canvas;
+    if (!cv) return;
+    // Expected display size: #app is pinned to the viewport (see style.css),
+    // so its rect is the truth. If a host still collapses it to zero area,
+    // fall back to the window size rather than trusting a degenerate rect.
     const r = app.getBoundingClientRect();
-    const c = game.canvas?.getBoundingClientRect();
-    if (!c || !(r.width > 0) || !(r.height > 0)) return;
+    const w = r.width > 0 ? r.width : window.innerWidth;
+    const h = r.height > 0 ? r.height : window.innerHeight;
+    if (!(w > 0) || !(h > 0)) return;
     // EXPAND makes the canvas exactly fill #app, with a backing store equal to the
     // logical game size and the same aspect ratio as #app. Any mismatch means the
     // scale is stale or something outside Phaser resized the canvas (seen in the
     // RUN host): the game then draws a 720-wide portrait strip on a wide canvas.
-    const cv = game.canvas;
+    const c = cv.getBoundingClientRect();
     const sw = game.scale.width;
     const sh = game.scale.height;
-    const cssStale = Math.abs(c.width - r.width) > 1.5 || Math.abs(c.height - r.height) > 1.5;
+    const cssStale = Math.abs(c.width - w) > 1.5 || Math.abs(c.height - h) > 1.5;
     const backingStale = Math.abs(cv.width - Math.floor(sw)) > 1 || Math.abs(cv.height - Math.floor(sh)) > 1;
-    const aspectStale = sh > 0 && Math.abs(sw / sh - r.width / r.height) > 0.02;
-    if (!cssStale && !backingStale && !aspectStale) return;
-    pending = true;
-    requestAnimationFrame(() => {
-      pending = false;
-      game.scale.getParentBounds();
-      game.scale.refresh();
-      console.info(
-        `[mms] refit: app ${Math.round(r.width)}x${Math.round(r.height)}, canvas css ${Math.round(c.width)}x${Math.round(c.height)}, ` +
-          `backing ${cv.width}x${cv.height}, scale ${Math.round(sw)}x${Math.round(sh)} -> ${Math.round(game.scale.width)}x${Math.round(game.scale.height)}`,
-      );
-    });
+    const aspectStale = sh > 0 && Math.abs(sw / sh - w / h) > 0.02;
+    const parentStale =
+      Math.abs(game.scale.parentSize.width - w) > 1 || Math.abs(game.scale.parentSize.height - h) > 1;
+    if (!cssStale && !backingStale && !aspectStale && !parentStale) return;
+    // Synchronous refit. The previous version deferred to requestAnimationFrame:
+    // while the host keeps the frame hidden or 0-sized (pre-reveal) rAF never
+    // fires, so its `pending` flag latched and disabled every later check, and
+    // the game stayed at whatever size Phaser first measured. setParentSize
+    // also overwrites a parent size Phaser cached before the host settled.
+    game.scale.setParentSize(Math.round(w), Math.round(h));
+    console.info(
+      `[mms] refit: expected ${Math.round(w)}x${Math.round(h)}, canvas css ${Math.round(c.width)}x${Math.round(c.height)}, ` +
+        `backing ${cv.width}x${cv.height}, scale ${Math.round(sw)}x${Math.round(sh)} -> ${Math.round(game.scale.width)}x${Math.round(game.scale.height)}`,
+    );
   };
   if (typeof ResizeObserver === 'function') new ResizeObserver(check).observe(app);
   window.addEventListener('resize', check);
+  window.addEventListener('orientationchange', check);
+  document.addEventListener('fullscreenchange', check);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') check();
+  });
+  window.visualViewport?.addEventListener('resize', check);
   window.setInterval(check, 500);
   // A few early checks while the host is still settling its layout.
   for (const ms of [50, 250, 1000, 2500]) window.setTimeout(check, ms);
+  check();
 }

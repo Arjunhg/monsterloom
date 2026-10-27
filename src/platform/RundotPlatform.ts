@@ -16,6 +16,7 @@ import RundotGameAPI from '@series-inc/rundot-game-sdk/api';
 import { MemoryStubs } from './MemoryStubs';
 import type {
   CdnFetchOptions,
+  FullscreenCapability,
   LeaderboardResult,
   PlatformService,
   PlatformSubscription,
@@ -66,6 +67,28 @@ export class RundotPlatform implements PlatformService {
 
   fetchCdnAsset(path: string, opts?: CdnFetchOptions): Promise<Blob> {
     return RundotGameAPI.cdn.fetchAsset(path, opts);
+  }
+
+  fullscreenCapability(): FullscreenCapability {
+    try {
+      return RundotGameAPI.system.getEnvironment().capabilities.fullscreen;
+    } catch {
+      return 'unavailable';
+    }
+  }
+
+  async requestFullscreen(): Promise<boolean> {
+    // The capability read is synchronous, so the SDK call below still runs
+    // inside the player's gesture (required by the host/browser).
+    const cap = this.fullscreenCapability();
+    if (cap === 'always-on') return true;
+    if (cap !== 'toggleable') return false;
+    try {
+      const state = await RundotGameAPI.system.requestFullscreen();
+      return state.active;
+    } catch {
+      return false;
+    }
   }
 
   // ---- v3 (stubs) ----------------------------------------------------------

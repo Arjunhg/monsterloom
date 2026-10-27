@@ -32,6 +32,9 @@ export interface SharePayload {
 
 export type PurchaseResult = 'ok' | 'cancelled' | 'failed';
 
+/** Host fullscreen availability on this surface (RUN system capabilities). */
+export type FullscreenCapability = 'unavailable' | 'always-on' | 'toggleable';
+
 export interface CdnFetchOptions {
   /** Timeout in milliseconds. */
   timeout?: number;
@@ -56,6 +59,15 @@ export interface PlatformService {
   funnel(step: number, name: string, funnelName?: string, funnelOrder?: number): void;
   /** Fetch an asset from `cdn-assets/` (cdn.fetchAsset). Rejects on failure. */
   fetchCdnAsset(path: string, opts?: CdnFetchOptions): Promise<Blob>;
+  /** Whether host fullscreen exists / can be toggled here (system.getEnvironment). */
+  fullscreenCapability(): FullscreenCapability;
+  /**
+   * Ask the host to enter fullscreen so the game fills the screen. Must be
+   * called from a direct player action, before any other await in that
+   * handler. Resolves `true` when fullscreen is active after the call
+   * (including 'always-on' surfaces). Never rejects.
+   */
+  requestFullscreen(): Promise<boolean>;
 
   // ---- v3 (stubs for now; to be mapped to SDK storage/leaderboard/sharing/purchases) ----
   load<T>(key: string): Promise<T | null>;

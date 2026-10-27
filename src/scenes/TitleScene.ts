@@ -160,6 +160,9 @@ export default class TitleScene extends Phaser.Scene {
     this.starting = true;
     this.unlockAudio();
     const session = getSession();
+    // Fill the screen on hosts that start the game in a constrained stage.
+    // Synchronous gesture chain (tap -> startRun), so the host call is allowed.
+    void session.platform.requestFullscreen();
     session.sim.restart(session.flags.seed);
     session.platform.track('run_started');
     if (!runStartedFired) {
