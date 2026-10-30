@@ -11,7 +11,7 @@
 import { GAME_CONFIG, viewDensityScale, type GameConfig } from '../data';
 import { resetAbilityState } from './abilities/types';
 import { FixedStepLoop } from './FixedStepLoop';
-import { createRunState, resetRunState, type PauseKind, type RunState } from './RunState';
+import { createRunState, resetRunState, type PauseKind, type RunBonuses, type RunState } from './RunState';
 import { createSimContext, type SimContext, type System } from './SimContext';
 import { abilitySystem } from './systems/AbilitySystem';
 import { clockSystem } from './systems/ClockSystem';
@@ -45,6 +45,8 @@ export const SIM_STEP = 1 / 60;
 export interface SimOptions {
   seed?: number;
   config?: GameConfig;
+  /** Meta progression bonuses applied at run start (task 20). */
+  bonuses?: RunBonuses;
   /** Throw on non-finite player/enemy positions after each step (dev builds and tests). */
   assertFinite?: boolean;
 }
@@ -72,13 +74,15 @@ export class Sim {
   /** Steps run since the current run started. */
   ticks = 0;
 
+  private bonuses: RunBonuses;
   private readonly input = { x: 0, y: 0 };
   private readonly systems: readonly System[];
   private readonly runStep = (dt: number) => this.step(dt);
   private readonly isPaused = () => this.state.paused !== false || this.state.outcome !== null;
 
   constructor(opts: SimOptions = {}) {
-    this.state = createRunState(opts.seed, opts.config ?? GAME_CONFIG);
+    this.bonuses = opts.bonuses ?? {};
+    this.state = createRunState(opts.seed, opts.config ?? GAME_CONFIG, this.bonuses);
     this.ctx = createSimContext(this.state);
     this.loop = new FixedStepLoop(SIM_STEP, 5);
     this.assertFinite = opts.assertFinite ?? false;
@@ -131,8 +135,13 @@ export class Sim {
   }
 
   /** Starts a fresh run in place: every pool emptied, all per-ctx ability state cleared (Req 15.2–15.3). */
+  /** Bonuses for subsequent restarts (meta load may finish after the Sim exists). */
+  setBonuses(bonuses: RunBonuses): void {
+    this.bonuses = bonuses ?? {};
+  }
+
   restart(seed?: number): void {
-    resetRunState(this.state, seed);
+    resetRunState(this.state, seed, this.bonuses);
     resetAbilityState(this.ctx);
     resetProjectileHits(this.ctx);
     resetAllMutationAbilities(this.ctx);

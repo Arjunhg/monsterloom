@@ -11,7 +11,9 @@
 import Phaser from 'phaser';
 import { FONT, GAME_HEIGHT, GAME_WIDTH, PALETTE, SCENE, SFX } from '../game/keys';
 import { columnLayout, onResizeSettled, type ColumnLayout } from '../game/layout';
-import { getSession } from '../game/Session';
+import { getSession, syncMetaBonuses, type RunMode } from '../game/Session';
+import { dailyScore, submitPendingDailyScore } from '../meta/DailyChallenge';
+import { META_CURRENCY_NAME } from '../meta/MetaProgression';
 import { getAudio } from '../juice/AudioManager';
 import { PlayerRenderer } from '../render/PlayerRenderer';
 import type { RunState } from '../sim/RunState';
@@ -46,6 +48,19 @@ export default class ResultsScene extends Phaser.Scene {
   private layout: ColumnLayout = { width: GAME_WIDTH, height: GAME_HEIGHT, ox: 0, oy: 0 };
   private createdAt = 0;
   private leaving = false;
+  /** Bones awarded for this visit's run (task 20); null until awarded. */
+  private metaReward: number | null = null;
+  private bonesValueText: Phaser.GameObjects.Text | null = null;
+  /** Finished-run stats snapshot, taken at create so a fast restart can't skew the reward. */
+  private runSummary = { elapsed: 0, kills: 0, victory: false };
+  /** Daily-run context snapshot (task 21). */
+  private runKind: RunMode = 'normal';
+  private runDailyDate: string | null = null;
+  private dailyStatus = '';
+  private dailyStatusText: Phaser.GameObjects.Text | null = null;
+  private dailySubmitFailed = false;
+  private submittingDaily = false;
+  private visitAlive = false;
 
   constructor() {
     super(SCENE.results);
@@ -57,6 +72,20 @@ export default class ResultsScene extends Phaser.Scene {
     const relayout = data?.relayout === true;
     // Scene instance is reused across runs: reset per-visit fields.
     this.leaving = false;
+    this.visitAlive = true;
+    this.bonesValueText = null;
+    this.dailyStatusText = null;
+    if (!relayout) {
+      this.metaReward = null;
+      const session = getSession();
+      const st = session.sim.state;
+      this.runSummary = { elapsed: st.clock.elapsed, kills: st.stats.kills, victory: st.outcome === 'victory' };
+      this.runKind = session.runMode;
+      this.runDailyDate = session.dailyDate;
+      this.dailyStatus = '';
+      this.dailySubmitFailed = false;
+      this.submittingDaily = false;
+    }
     if (!relayout) this.createdAt = this.time.now;
     this.portrait = null;
 
@@ -97,6 +126,29 @@ export default class ResultsScene extends Phaser.Scene {
     frame.setDepth(10);
     portrait.sync(0, 0, this.time.now);
     this.portrait = portrait;
+
+    // Meta reward (task 20): award once per visit, after the boot load has
+    // settled so a late load can't clobber the reward. Save is async; a
+    // failure only toasts — state stays in memory and retries next run end.
+    if (!relayout) {
+      if (session.meta.loadOutcome !== 'not-loaded') this.awardMeta();
+      else void session.metaReady.then(() => this.awardMeta());
+    }
+
+    // Ranked daily submission (task 21): record first so the score survives
+    // until accepted, then submit. Failure shows on the card's status line
+    // with tap-to-retry (non-blocking, Req 27.6).
+    if (!relayout && this.runKind === 'daily-ranked' && this.runDailyDate) {
+      session.daily.recordPending({
+        date: this.runDailyDate,
+        score: dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory),
+        survivalSec: this.runSummary.elapsed,
+        kills: this.runSummary.kills,
+        victory: this.runSummary.victory,
+      });
+      void session.daily.flush();
+      void this.submitDaily();
+    }
 
     this.drawStatsCard(state, victory);
 
@@ -215,7 +267,12 @@ export default class ResultsScene extends Phaser.Scene {
       ['Kills', String(state.stats.kills)],
       ['Level-ups', String(state.energy.levelUps)],
       ['Parts built', String(parts.count)],
+      [`${META_CURRENCY_NAME} earned`, this.metaReward === null ? '…' : `+${this.metaReward}`],
     ];
+    if (this.runKind !== 'normal') {
+      rows.push(['Daily score', String(dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory))]);
+    }
+    const rowGap = rows.length > 6 ? 46 : 52;
     const left = cx - w / 2 + 40;
     const right = cx + w / 2 - 40;
     const labelStyle = { fontFamily: FONT, fontSize: '32px', color: PALETTE.textDim };
@@ -223,8 +280,9 @@ export default class ResultsScene extends Phaser.Scene {
     let y = top + 36;
     for (const [label, value] of rows) {
       this.add.text(left, y, label, labelStyle);
-      this.add.text(right, y, value, valueStyle).setOrigin(1, 0);
-      y += 52;
+      const valueText = this.add.text(right, y, value, valueStyle).setOrigin(1, 0);
+      if (label === `${META_CURRENCY_NAME} earned`) this.bonesValueText = valueText;
+      y += rowGap;
     }
 
     const wrapStyle = {
@@ -240,10 +298,30 @@ export default class ResultsScene extends Phaser.Scene {
     y += 42;
     this.add.text(left, y, mutationsSummary(state), { ...wrapStyle, color: '#e0b8ff' });
 
-    // Seed (Req 17.3), small text at the card's bottom.
-    this.add
-      .text(cx, top + h - 20, `Seed ${state.seed}`, { fontFamily: FONT, fontSize: '22px', color: PALETTE.textDim })
-      .setOrigin(0.5, 1);
+    // Seed (Req 17.3), small text at the card's bottom. Daily runs show the
+    // submission status here instead; tapping it retries a failed submit.
+    if (this.runKind === 'normal') {
+      this.add
+        .text(cx, top + h - 20, `Seed ${state.seed}`, { fontFamily: FONT, fontSize: '22px', color: PALETTE.textDim })
+        .setOrigin(0.5, 1);
+    } else {
+      const initial =
+        this.dailyStatus ||
+        (this.runKind === 'daily-ranked' ? 'Submitting score…' : `Daily ${this.runDailyDate} · Practice — not submitted`);
+      this.dailyStatusText = this.add
+        .text(cx, top + h - 20, initial, {
+          fontFamily: FONT,
+          fontSize: '22px',
+          color: PALETTE.textDim,
+          align: 'center',
+          wordWrap: { width: w - 40 },
+        })
+        .setOrigin(0.5, 1);
+      const retryZone = this.add.zone(cx, top + h - 32, w, 56).setInteractive({ useHandCursor: true });
+      retryZone.on('pointerup', () => {
+        if (this.dailySubmitFailed) void this.submitDaily();
+      });
+    }
   }
 
   private makeButton(
@@ -277,6 +355,74 @@ export default class ResultsScene extends Phaser.Scene {
   // Actions
   // ---------------------------------------------------------------------------
 
+  /** Awards Bones for the finished run and queues the save (once per visit). */
+  private awardMeta(): void {
+    if (this.metaReward !== null) return;
+    const session = getSession();
+    this.metaReward = session.meta.awardRun(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory);
+    if (this.visitAlive) this.bonesValueText?.setText(`+${this.metaReward}`);
+    void session.meta.flush().then((ok) => {
+      if (ok || !this.visitAlive) return;
+      this.showToast(
+        session.meta.saveBlocked
+          ? 'Saved progress was corrupted — earnings kept for this session'
+          : "Couldn't save progress — will retry next run",
+      );
+    });
+  }
+
+  private setDailyStatus(status: string): void {
+    this.dailyStatus = status;
+    if (this.visitAlive) this.dailyStatusText?.setText(status);
+  }
+
+  /** Submits the recorded ranked score; failures stay pending for retry (Req 27.6). */
+  private async submitDaily(): Promise<void> {
+    if (this.submittingDaily) return;
+    const session = getSession();
+    if (!session.daily.state.pending) return;
+    this.submittingDaily = true;
+    this.dailySubmitFailed = false;
+    this.setDailyStatus('Submitting score…');
+    try {
+      const outcome = await submitPendingDailyScore(session.platform, session.daily);
+      if (outcome?.accepted) {
+        this.setDailyStatus(
+          `Daily ${this.runDailyDate} · Submitted${outcome.rank ? ` · Rank #${outcome.rank}` : ''}`,
+        );
+      } else {
+        this.dailySubmitFailed = true;
+        this.setDailyStatus(
+          outcome?.reason ? `Not recorded: ${outcome.reason} — tap to retry` : "Couldn't submit score — tap to retry",
+        );
+      }
+    } catch {
+      this.dailySubmitFailed = true;
+      this.setDailyStatus("Couldn't submit score — tap to retry");
+    } finally {
+      this.submittingDaily = false;
+    }
+  }
+
+  /** Small non-blocking message near the top of the screen. */
+  private showToast(message: string): void {
+    const cx = this.layout.width / 2;
+    const y = this.layout.oy + 64;
+    const text = this.add
+      .text(cx, y, message, {
+        fontFamily: FONT,
+        fontSize: '26px',
+        color: PALETTE.text,
+        backgroundColor: '#0b0716',
+        padding: { x: 18, y: 10 },
+        align: 'center',
+        wordWrap: { width: GAME_WIDTH - 80 },
+      })
+      .setOrigin(0.5)
+      .setDepth(100);
+    this.tweens.add({ targets: text, alpha: 0, delay: 3200, duration: 600, onComplete: () => text.destroy() });
+  }
+
   private canAct(): boolean {
     return !this.leaving && this.time.now - this.createdAt >= INPUT_GRACE_MS;
   }
@@ -294,6 +440,10 @@ export default class ResultsScene extends Phaser.Scene {
     this.leaving = true;
     this.click();
     const session = getSession();
+    // Another Night is always a normal run: restore meta bonuses and seed.
+    session.runMode = 'normal';
+    session.dailyDate = null;
+    syncMetaBonuses(session);
     // In-place reset (Req 15.2–15.3); new random seed unless ?seed= pins it.
     // Re-enter fullscreen if the player left it since the run started.
     void session.platform.requestFullscreen();
@@ -309,6 +459,7 @@ export default class ResultsScene extends Phaser.Scene {
   }
 
   private onShutdown(): void {
+    this.visitAlive = false;
     this.portrait?.destroy();
     this.portrait = null;
     // Keyboard listeners are scene-scoped plugins but persist across restarts; drop ours.
