@@ -5,6 +5,8 @@
  * settings. Scenes get it with `getSession()`; main.ts creates it with
  * `initSession(platform)` before the Phaser game starts.
  */
+import { DailyChallenge } from '../meta/DailyChallenge';
+import { MetaProgression } from '../meta/MetaProgression';
 import type { PlatformService } from '../platform/PlatformService';
 import { InputManager } from '../sim/input/InputManager';
 import { Sim } from '../sim/Sim';
@@ -15,9 +17,24 @@ export interface Settings {
   shakeEnabled: boolean;
 }
 
+/** Which kind of run is (or was last) in progress. Daily runs disable meta stat bonuses. */
+export type RunMode = 'normal' | 'daily-ranked' | 'daily-practice';
+
 export interface Session {
   readonly platform: PlatformService;
   readonly sim: Sim;
+  /** Permanent progression (task 20); state is usable immediately (defaults until load lands). */
+  readonly meta: MetaProgression;
+  /** Resolves once the boot meta load finished and bonuses were applied to the Sim. */
+  readonly metaReady: Promise<void>;
+  /** Daily challenge state (ranked-date flag + pending score). */
+  readonly daily: DailyChallenge;
+  /** Resolves once the boot daily-state load finished. */
+  readonly dailyReady: Promise<void>;
+  /** Current run kind; set by Title/Results run starts. */
+  runMode: RunMode;
+  /** UTC date key of the current daily run (claimed at run start), else null. */
+  dailyDate: string | null;
   readonly input: InputManager;
   /** Kept for the whole session (Req 18.6). */
   readonly settings: Settings;
@@ -37,13 +54,51 @@ function readFlags(): Session['flags'] {
   return { debug: q.get('debug') === '1', stress: Number.isFinite(stress) ? Math.max(0, stress) : 0, seed };
 }
 
+/** Pushes the current meta bonuses into the Sim for subsequent run starts. */
+export function syncMetaBonuses(s: Session): void {
+  s.sim.setBonuses(s.meta.runBonuses());
+}
+
 export function initSession(platform: PlatformService): Session {
   const flags = readFlags();
   const hasTouch =
     typeof window !== 'undefined' && ('ontouchstart' in window || (navigator.maxTouchPoints ?? 0) > 0);
+  const sim = new Sim({ seed: flags.seed, assertFinite: import.meta.env.DEV });
+  const meta = new MetaProgression(platform);
+  // Load at boot without blocking game creation (Req 26.3): defaults until it
+  // lands, then bonuses apply to every run started afterwards.
+  const metaReady = meta
+    .load()
+    .then(() => {
+      // Dev-only test grant: ?bones=500 (ignored in production builds).
+      if (import.meta.env.DEV && typeof window !== 'undefined') {
+        const bones = Number(new URLSearchParams(window.location.search).get('bones') ?? 0);
+        if (Number.isFinite(bones) && bones > 0) {
+          meta.grantCurrency(bones);
+          platform.log(`[Session] dev grant: +${Math.floor(bones)} Bones`);
+        }
+      }
+      sim.setBonuses(meta.runBonuses());
+    })
+    .catch(() => {
+      // MetaProgression.load never rejects; keep the session alive regardless.
+    });
+  const daily = new DailyChallenge(platform);
+  const dailyReady = daily
+    .load()
+    .then(() => undefined)
+    .catch(() => {
+      // DailyChallenge.load never rejects; keep the session alive regardless.
+    });
   session = {
     platform,
-    sim: new Sim({ seed: flags.seed, assertFinite: import.meta.env.DEV }),
+    sim,
+    meta,
+    metaReady,
+    daily,
+    dailyReady,
+    runMode: 'normal',
+    dailyDate: null,
     input: new InputManager(hasTouch),
     settings: { musicMuted: false, sfxMuted: false, shakeEnabled: true },
     flags,

@@ -1,0 +1,10 @@
+{
+  "requiresToken": false,
+  "minScore": 0,
+  "minDurationSec": 0,
+  "maxDurationSec": 3600,
+  "periods": {
+    "alltime": { "displayName": "All Time", "type": "alltime" },
+    "daily": { "displayName": "Daily", "type": "daily" }
+  }
+}

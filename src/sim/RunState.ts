@@ -9,7 +9,7 @@ import { GAME_CONFIG, type GameConfig } from '../data';
 import { createRunStreams, newSeed, normalizeSeed, type RunRngStreams } from './rng/SeededRNG';
 import { IdPool } from './pool/IdPool';
 import { EventBus } from './EventBus';
-import { defaultStats, type StatMultipliers } from './StatCaps';
+import { STAT_KEYS, clampStats, defaultStats, type StatMultipliers } from './StatCaps';
 
 // ---------------------------------------------------------------------------
 // Enemy flags
@@ -338,6 +338,17 @@ export type RunMode = 'normal' | 'daily' | 'challenge';
 export type PauseKind = false | 'menu' | 'user' | 'auto';
 export type RunOutcome = null | 'victory' | 'defeat';
 
+/**
+ * Permanent bonuses applied at run start (meta progression, Req 26.5).
+ * Starting parts are equipped at level 1 (in order, capped by maxParts);
+ * stat multipliers replace the default 1s and are clamped to the Req 12 caps.
+ * Absent/empty bonuses reproduce the vanilla run exactly (daily/challenge fairness).
+ */
+export interface RunBonuses {
+  startingPartIds?: readonly string[];
+  statMultipliers?: Partial<StatMultipliers>;
+}
+
 export interface PlayerState {
   x: number;
   y: number;
@@ -419,7 +430,35 @@ export function starterPartId(config: GameConfig): string {
  * Creates a fresh RunState. All typed-array stores are allocated here once.
  * When `seed` is undefined a new seed is generated and recorded (Req 17.3).
  */
-export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG): RunState {
+/** Starting loadout: the config starter plus any valid bonus parts, capped by maxParts. */
+function startingParts(config: GameConfig, bonuses?: RunBonuses): Map<string, OwnedPart> {
+  const parts = new Map<string, OwnedPart>();
+  const add = (id: string): void => {
+    if (parts.size >= config.balance.maxParts || parts.has(id)) return;
+    parts.set(id, { level: 1, merged: false, rareBonuses: 0 });
+  };
+  add(starterPartId(config));
+  for (const id of bonuses?.startingPartIds ?? []) {
+    const def = config.bodyParts.find((p) => p.id === id);
+    if (def && !def.starter) add(id);
+  }
+  return parts;
+}
+
+/** Default multipliers with meta bonuses applied, clamped to the balance caps (Req 12.1, 26.5). */
+function bonusedStats(config: GameConfig, bonuses?: RunBonuses): StatMultipliers {
+  const stats = defaultStats();
+  const mul = bonuses?.statMultipliers;
+  if (mul) {
+    for (const k of STAT_KEYS) {
+      const v = mul[k];
+      if (typeof v === 'number' && Number.isFinite(v)) stats[k] = v;
+    }
+  }
+  return clampStats(stats, config.balance.caps);
+}
+
+export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG, bonuses?: RunBonuses): RunState {
   const s = seed === undefined ? newSeed() : normalizeSeed(seed);
   const b = config.balance;
   const state: RunState = {
@@ -446,7 +485,7 @@ export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG):
       lastDirY: 0,
       pickupRadius: b.player.pickupRadius,
       viewBoost: 1,
-      stats: defaultStats(),
+      stats: bonusedStats(config, bonuses),
     },
     // Sized for the widest view's cap (+1 boss slot); the director enforces the view-dependent cap.
     enemies: new EnemyStore(Math.max(b.spawn.maxActive, b.spawn.maxActiveWide) + 1),
@@ -455,7 +494,7 @@ export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG):
     tokens: new TokenStore(TOKEN_CAPACITY),
     energy: { value: 0, levelUps: 0, pendingLevelUps: 0, pendingTokens: 0 },
     build: {
-      parts: new Map([[starterPartId(config), { level: 1, merged: false, rareBonuses: 0 }]]),
+      parts: startingParts(config, bonuses),
       mutations: new Set(),
       banned: new Set(),
       rerolls: b.menu.rerolls,
@@ -473,7 +512,7 @@ export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG):
  * slot and restores initial values without reallocating typed arrays.
  * When `seed` is undefined a new seed is generated and recorded.
  */
-export function resetRunState(state: RunState, seed?: number): void {
+export function resetRunState(state: RunState, seed?: number, bonuses?: RunBonuses): void {
   const s = seed === undefined ? newSeed() : normalizeSeed(seed);
   const b = state.config.balance;
 
@@ -496,7 +535,7 @@ export function resetRunState(state: RunState, seed?: number): void {
   p.lastDirY = 0;
   p.pickupRadius = b.player.pickupRadius;
   p.viewBoost = 1;
-  Object.assign(p.stats, defaultStats());
+  Object.assign(p.stats, bonusedStats(state.config, bonuses));
 
   state.enemies.reset();
   state.projectiles.reset();
@@ -509,7 +548,7 @@ export function resetRunState(state: RunState, seed?: number): void {
   state.energy.pendingTokens = 0;
 
   state.build.parts.clear();
-  state.build.parts.set(starterPartId(state.config), { level: 1, merged: false, rareBonuses: 0 });
+  for (const [id, owned] of startingParts(state.config, bonuses)) state.build.parts.set(id, owned);
   state.build.mutations.clear();
   state.build.banned.clear();
   state.build.rerolls = b.menu.rerolls;
