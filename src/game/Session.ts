@@ -100,7 +100,9 @@ export function initSession(platform: PlatformService): Session {
   // Friend challenge (task 22): decode the `challenge` launch param. A
   // malformed payload is ignored and the title screen opens normally (28.6).
   const challengeReady = platform
-    .getLaunchParams()
+    // Generous wait: on the real host the share intent may need a deferred
+    // deep-link resolution round trip after the SDK handshake.
+    .getLaunchParams(3000)
     .then((params) => {
       const raw = params.challenge;
       if (!raw || !session) return;
