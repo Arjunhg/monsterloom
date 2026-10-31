@@ -18,6 +18,7 @@
 import type { PlatformService } from '../platform/PlatformService';
 import type { RunBonuses } from '../sim/RunState';
 import { STAT_KEYS, defaultStats, type StatMultipliers } from '../sim/StatCaps';
+import { BLOOD_MOON_BONES_PER_KILL } from '../sim/systems/BloodMoonSystem';
 
 export const META_STORAGE_KEY = 'mms_meta_v1';
 export const META_VERSION = 1;
@@ -119,10 +120,11 @@ export function startingPartIdsFor(state: MetaState): string[] {
  * Bones awarded for a finished run (Req 26.1, design formula):
  * floor(floor(survivalSec/10 + kills/25) × (victory ? 1.5 : 1)).
  */
-export function rewardFor(survivalSec: number, kills: number, victory: boolean): number {
+export function rewardFor(survivalSec: number, kills: number, victory: boolean, surgeKills = 0): number {
   const sec = Number.isFinite(survivalSec) ? Math.max(0, survivalSec) : 0;
   const k = Number.isFinite(kills) ? Math.max(0, kills) : 0;
-  return Math.floor(Math.floor(sec / 10 + k / 25) * (victory ? 1.5 : 1));
+  const surge = Number.isFinite(surgeKills) ? Math.max(0, Math.floor(surgeKills)) : 0;
+  return Math.floor(Math.floor(sec / 10 + k / 25) * (victory ? 1.5 : 1)) + surge * BLOOD_MOON_BONES_PER_KILL;
 }
 
 // ---------------------------------------------------------------------------
@@ -275,8 +277,8 @@ export class MetaProgression {
   }
 
   /** Awards the run-end Bones reward in memory (Req 26.1). Call flush() to persist. */
-  awardRun(survivalSec: number, kills: number, victory: boolean): number {
-    return this.grantCurrency(rewardFor(survivalSec, kills, victory));
+  awardRun(survivalSec: number, kills: number, victory: boolean, surgeKills = 0): number {
+    return this.grantCurrency(rewardFor(survivalSec, kills, victory, surgeKills));
   }
 
   /**

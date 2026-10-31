@@ -674,6 +674,10 @@ export default class HudScene extends Phaser.Scene {
   private onSimEvent(type: number, a: number): void {
     if (type === EventType.partGained || type === EventType.partLevelled || type === EventType.mutation) {
       this.rebuildPartRow();
+    } else if (type === EventType.bloodMoonStarted) {
+      this.showBanner('BLOOD MOON — bonus Bones for kills!', '#ff5a4e');
+    } else if (type === EventType.bloodMoonEnded) {
+      this.showBanner('The Blood Moon fades', '#ffb0a0');
     } else if (type === EventType.swarmWarning) {
       // Swarm warning (Req 23.5): red-ish banner for 2 s.
       const swarm = this.session.sim.state.config.swarmEvents?.[a];

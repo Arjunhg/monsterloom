@@ -18,6 +18,7 @@ import { clockSystem } from './systems/ClockSystem';
 import { contactSystem } from './systems/ContactSystem';
 import { damageSystem } from './systems/DamageSystem';
 import { frenzySystem } from './systems/FrenzySystem';
+import { bloodMoonSystem } from './systems/BloodMoonSystem';
 import { enemyAISystem } from './systems/EnemyAISystem';
 import { energySystem } from './systems/EnergySystem';
 import { mergeSystem } from './systems/MergeSystem';
@@ -91,6 +92,7 @@ export class Sim {
     this.systems = [
       clockSystem, // 1
       createPlayerSystem(() => input), // 2
+      bloodMoonSystem, // 2b (sets surge flag before credits accrue)
       spawnDirector, // 3 (credit lanes + swarm events)
       bossSpawnSystem, // 3b (dawn boss, once per run; marks it fleeing at dawn)
       enemyAISystem, // 4

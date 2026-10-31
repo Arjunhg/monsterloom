@@ -41,6 +41,10 @@ export const EventType = {
   frenzyStarted: 16,
   /** Frenzy window ended (Req 30) */
   frenzyEnded: 17,
+  /** Blood Moon surge started (Req 31) */
+  bloodMoonStarted: 18,
+  /** Blood Moon surge ended (Req 31) */
+  bloodMoonEnded: 19,
 } as const;
 
 export type EventTypeName = keyof typeof EventType;
