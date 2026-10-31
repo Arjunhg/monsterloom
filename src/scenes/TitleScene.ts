@@ -148,6 +148,10 @@ export default class TitleScene extends Phaser.Scene {
     void getSession().dailyReady.then(() => {
       if (this.scene.isActive(SCENE.title)) this.refreshDailyLabel();
     });
+    // Friend challenge (task 22): a valid launch payload auto-starts its run.
+    void getSession().challengeReady.then(() => {
+      if (this.scene.isActive(SCENE.title) && getSession().pendingChallenge && !this.starting) this.startChallenge();
+    });
     void getSession().metaReady.then(() => {
       if (!this.scene.isActive(SCENE.title)) return;
       this.refreshBones();
@@ -251,6 +255,31 @@ export default class TitleScene extends Phaser.Scene {
     this.dailyButtonText?.setText(ranked ? 'Daily · Ranked' : 'Daily · Practice');
   }
 
+  /** Starts the pending friend-challenge run with its encoded seed (Req 28.4). */
+  private startChallenge(): void {
+    if (this.starting) return;
+    const session = getSession();
+    const payload = session.pendingChallenge;
+    if (!payload) return;
+    this.starting = true;
+    this.unlockAudio();
+    void session.platform.requestFullscreen();
+    session.pendingChallenge = null;
+    void session.metaReady.then(() => {
+      session.runMode = 'challenge';
+      session.dailyDate = null;
+      session.challengeTarget = payload.score;
+      syncMetaBonuses(session);
+      session.sim.restart(payload.seed);
+      session.platform.track('challenge_started', { target: payload.score });
+      if (!runStartedFired) {
+        runStartedFired = true;
+        session.platform.funnel(3, 'run_started', 'boot', 1);
+      }
+      this.scene.start(SCENE.game);
+    });
+  }
+
   /** Starts today's seeded run: stat bonuses off, first attempt of the day is ranked. */
   private startDaily(): void {
     if (this.starting) return;
@@ -264,6 +293,8 @@ export default class TitleScene extends Phaser.Scene {
       const ranked = session.daily.claimRanked(date);
       session.runMode = ranked ? 'daily-ranked' : 'daily-practice';
       session.dailyDate = date;
+      session.pendingChallenge = null;
+      session.challengeTarget = null;
       void session.daily.flush();
       // Fair conditions (Req 27.2): meta stat bonuses off; starting parts stay.
       session.sim.setBonuses({ startingPartIds: startingPartIdsFor(session.meta.state) });
@@ -577,6 +608,8 @@ export default class TitleScene extends Phaser.Scene {
     void session.platform.requestFullscreen();
     session.runMode = 'normal';
     session.dailyDate = null;
+    session.pendingChallenge = null;
+    session.challengeTarget = null;
     syncMetaBonuses(session);
     session.sim.restart(session.flags.seed);
     session.platform.track('run_started');

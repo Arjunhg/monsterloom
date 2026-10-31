@@ -150,6 +150,10 @@ export class RundotPlatform implements PlatformService {
     const mimeType = shareMimeType(payload.image);
     const filename = payload.filename ?? defaultShareFilename(mimeType);
     if (payload.shareParams && Object.keys(payload.shareParams).length > 0) {
+      // Local dev/playground: the SDK mock mints dead `mock-share-url.com`
+      // links and opens a real X composer with one. Report not-completed so
+      // callers fall back to copying a plain, working challenge link.
+      if (isDevelopmentSurface()) return { completed: false, destination: 'dev' };
       // One host flow carrying both the card image and a tracked share link
       // minted from shareParams (delivered back via launch intent).
       const res = await RundotGameAPI.social.composeSocialPostAsync({
@@ -173,15 +177,17 @@ export class RundotPlatform implements PlatformService {
   }
 
   async getLaunchParams(maxWaitMs = 800): Promise<Record<string, string>> {
+    // Page URL params are the base layer so plain web deep links (e.g. a
+    // copied challenge link opened directly) still reach the game; the host
+    // launch intent wins on conflicts.
+    const out: Record<string, string> = {};
+    if (typeof window !== 'undefined') {
+      new URLSearchParams(window.location.search).forEach((v, k) => (out[k] = v));
+    }
     try {
       const intent = await RundotGameAPI.app.resolveLaunchIntent({ maxWaitMs });
-      return { ...(intent.params ?? {}) };
+      return { ...out, ...(intent.params ?? {}) };
     } catch {
-      // Older host / transport failure: fall back to the page URL's query
-      // params so plain web deep links still reach the game.
-      if (typeof window === 'undefined') return {};
-      const out: Record<string, string> = {};
-      new URLSearchParams(window.location.search).forEach((v, k) => (out[k] = v));
       return out;
     }
   }
@@ -237,6 +243,16 @@ function newIdempotencyKey(): string {
   const c = globalThis.crypto;
   if (c && typeof c.randomUUID === 'function') return c.randomUUID();
   return `mms-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/** True on a Vite dev build or when the host reports a development surface. */
+function isDevelopmentSurface(): boolean {
+  if (import.meta.env.DEV) return true;
+  try {
+    return RundotGameAPI.system.getEnvironment().isDevelopment === true;
+  } catch {
+    return false;
+  }
 }
 
 function isUserCancelled(err: unknown): boolean {
