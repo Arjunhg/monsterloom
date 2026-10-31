@@ -17,6 +17,8 @@ import {
   utcDateKey,
 } from '../meta/DailyChallenge';
 import { COSMETICS, SHOP_SKUS, Shop, cosmeticDef } from '../meta/Shop';
+import { ACHIEVEMENTS, evaluateAchievements } from '../meta/Achievements';
+import { AchievementBanner } from '../render/AchievementBanner';
 import type { ScoreEntry } from '../platform/PlatformService';
 import { columnLayout, onResizeSettled } from '../game/layout';
 import { getAudio } from '../juice/AudioManager';
@@ -49,6 +51,8 @@ const TOGGLES: ToggleDef[] = [
 export default class TitleScene extends Phaser.Scene {
   private starting = false;
   private bonesText: Phaser.GameObjects.Text | null = null;
+  private badgesText: Phaser.GameObjects.Text | null = null;
+  private achievementBanner: AchievementBanner | null = null;
   private unlockPanel: Phaser.GameObjects.Container | null = null;
   private dailyButtonText: Phaser.GameObjects.Text | null = null;
   /** Unlocks panel tab: power unlocks, cosmetic looks, or the real-money shop (task 23). */
@@ -68,6 +72,7 @@ export default class TitleScene extends Phaser.Scene {
   create(): void {
     this.starting = false;
     this.bonesText = null;
+    this.achievementBanner = null;
     this.unlockPanel = null;
     this.dailyButtonText = null;
     this.lbPanel = null;
@@ -106,6 +111,9 @@ export default class TitleScene extends Phaser.Scene {
     // Bobbing player blob.
     this.bonesText = this.add
       .text(cx, oy + 480, '', { fontFamily: FONT, fontSize: '34px', color: '#ffd166' })
+      .setOrigin(0.5);
+    this.badgesText = this.add
+      .text(cx, oy + 522, '', { fontFamily: FONT, fontSize: '24px', color: PALETTE.textDim })
       .setOrigin(0.5);
     this.refreshBones();
 
@@ -223,6 +231,8 @@ export default class TitleScene extends Phaser.Scene {
 
   private refreshBones(): void {
     this.bonesText?.setText(`${META_CURRENCY_NAME}: ${getSession().meta.state.currency}`);
+    const owned = getSession().meta.state.achievements.length;
+    this.badgesText?.setText(owned > 0 ? `Badges: ${owned}/${ACHIEVEMENTS.length}` : '');
     if (this.unlockPanel) {
       this.closeUnlocks();
       this.openUnlocks();
@@ -516,6 +526,7 @@ export default class TitleScene extends Phaser.Scene {
             } else if (shop.buyWithBones(def.id)) {
               session.meta.equipCosmetic(def.id);
               this.showToast(`Unlocked: ${def.name}`);
+              this.checkShopAchievement();
             } else {
               this.showToast(`Need ${def.bonesCost} ${META_CURRENCY_NAME}`);
               return;
@@ -547,6 +558,7 @@ export default class TitleScene extends Phaser.Scene {
                 session.meta.equipCosmetic(sku.cosmeticId);
                 saveMeta();
                 this.showToast(`Unlocked: ${def?.name ?? 'cosmetic'}`);
+                this.checkShopAchievement();
               } else if (res === 'cancelled') this.showToast('Purchase cancelled');
               else this.showToast("Purchase didn't go through — try again");
               this.refreshBones();
@@ -576,6 +588,25 @@ export default class TitleScene extends Phaser.Scene {
     items.push(closeZone);
 
     this.unlockPanel = this.add.container(0, 0, items).setDepth(100);
+  }
+
+  private getAchievementBanner(): AchievementBanner {
+    if (!this.achievementBanner) {
+      const { width: W, oy } = columnLayout(this);
+      this.achievementBanner = new AchievementBanner(this, W / 2, oy + 210);
+    }
+    return this.achievementBanner;
+  }
+
+  /** Shopaholic check after a cosmetic grant (Req 32); plaque on unlock. */
+  private checkShopAchievement(): void {
+    const session = getSession();
+    const unlocked = evaluateAchievements(session.meta, { cosmeticsOwned: session.meta.state.cosmetics.length });
+    if (unlocked.length > 0) {
+      // Delayed so the small "Unlocked: <look>" toast reads first.
+      for (const a of unlocked) this.getAchievementBanner().show(a.name, a.description, 650);
+      void session.meta.flush();
+    }
   }
 
   private getShop(): Shop {

@@ -72,6 +72,7 @@ export function damagePlayer(state: RunState, amount: number): boolean {
   amount /= p.viewBoost || 1;
   p.hp = Math.min(p.maxHp, Math.max(0, p.hp - amount));
   p.invuln = state.config.balance.player.invulnSec;
+  state.stats.noDamageSec = 0;
   state.events.push(EventType.playerHurt, amount, p.hp);
   if (p.hp <= 0) {
     state.outcome = 'defeat';

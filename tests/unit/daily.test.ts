@@ -88,6 +88,7 @@ describe('DailyChallenge ranked flag and pending score', () => {
     expect(validateDailyState({ rankedDate: '2026-10-26', pending: null })).toEqual({
       rankedDate: '2026-10-26',
       pending: null,
+      finishedCount: 0,
     });
   });
 });
