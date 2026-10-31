@@ -16,6 +16,7 @@ import {
   submitPendingDailyScore,
   utcDateKey,
 } from '../meta/DailyChallenge';
+import { COSMETICS, SHOP_SKUS, Shop, cosmeticDef } from '../meta/Shop';
 import type { ScoreEntry } from '../platform/PlatformService';
 import { columnLayout, onResizeSettled } from '../game/layout';
 import { getAudio } from '../juice/AudioManager';
@@ -50,6 +51,10 @@ export default class TitleScene extends Phaser.Scene {
   private bonesText: Phaser.GameObjects.Text | null = null;
   private unlockPanel: Phaser.GameObjects.Container | null = null;
   private dailyButtonText: Phaser.GameObjects.Text | null = null;
+  /** Unlocks panel tab: power unlocks, cosmetic looks, or the real-money shop (task 23). */
+  private unlockTab: 'power' | 'looks' | 'shop' = 'power';
+  private shop: Shop | null = null;
+  private buyingSku: string | null = null;
   private lbPanel: Phaser.GameObjects.Container | null = null;
   private lbGeneration = 0;
   private lbView: { kind: 'loading' } | { kind: 'ready'; top: ScoreEntry[]; me?: ScoreEntry } | { kind: 'error' } = {
@@ -329,32 +334,106 @@ export default class TitleScene extends Phaser.Scene {
     items.push(plate);
     items.push(
       this.add
-        .text(cx, top + 62, 'Unlocks', { fontFamily: FONT, fontSize: '52px', fontStyle: 'bold', color: PALETTE.text })
+        .text(cx, top + 50, 'Unlocks', { fontFamily: FONT, fontSize: '48px', fontStyle: 'bold', color: PALETTE.text })
         .setOrigin(0.5),
     );
     items.push(
       this.add
-        .text(cx, top + 122, `${META_CURRENCY_NAME}: ${session.meta.state.currency}`, {
+        .text(cx, top + 100, `${META_CURRENCY_NAME}: ${session.meta.state.currency}`, {
           fontFamily: FONT,
           fontSize: '32px',
           color: '#ffd166',
         })
         .setOrigin(0.5),
     );
-    items.push(
-      this.add
-        .text(cx, top + 162, 'Earn Bones by surviving. Tap a row to buy.', {
-          fontFamily: FONT,
-          fontSize: '24px',
-          color: PALETTE.textDim,
-        })
-        .setOrigin(0.5),
-    );
+    // Tabs (task 23): Power (Bones unlocks), Looks (cosmetics via Bones +
+    // equip), Shop (real payments — only where payments are supported, 29.5).
+    const shop = this.getShop();
+    const tabs: Array<{ id: 'power' | 'looks' | 'shop'; label: string }> = [
+      { id: 'power', label: 'Power' },
+      { id: 'looks', label: 'Looks' },
+    ];
+    if (shop.paymentsEnabled()) tabs.push({ id: 'shop', label: 'Shop' });
+    if (!tabs.some((t) => t.id === this.unlockTab)) this.unlockTab = 'power';
+    const tabW = 176;
+    const tabGap = 12;
+    const tabsTotal = tabs.length * tabW + (tabs.length - 1) * tabGap;
+    tabs.forEach((tab, i) => {
+      const tx = cx - tabsTotal / 2 + tabW / 2 + i * (tabW + tabGap);
+      const ty = top + 152;
+      const selected = this.unlockTab === tab.id;
+      const g = this.add.graphics();
+      g.fillStyle(selected ? 0x3a2878 : 0x241b38, 1);
+      g.fillRoundedRect(tx - tabW / 2, ty - 30, tabW, 60, 16);
+      g.lineStyle(3, PALETTE.playerRim, selected ? 0.9 : 0.35);
+      g.strokeRoundedRect(tx - tabW / 2, ty - 30, tabW, 60, 16);
+      items.push(g);
+      items.push(
+        this.add
+          .text(tx, ty, tab.label, {
+            fontFamily: FONT,
+            fontSize: '30px',
+            fontStyle: 'bold',
+            color: selected ? PALETTE.text : PALETTE.textDim,
+          })
+          .setOrigin(0.5),
+      );
+      const z = this.add.zone(tx, ty, tabW, 60).setInteractive({ useHandCursor: true });
+      z.on('pointerup', () => {
+        this.unlockAudio();
+        this.unlockTab = tab.id;
+        this.closeUnlocks();
+        this.openUnlocks();
+      });
+      items.push(z);
+    });
 
     const rowW = 560;
-    const rowH = 92;
+    const rowH = 88;
+    const addRow = (
+      y: number,
+      name: string,
+      sub: string,
+      status: string,
+      statusColor: string,
+      highlighted: boolean,
+      onTap: () => void,
+    ): void => {
+      const row = this.add.graphics();
+      row.fillStyle(highlighted ? 0x3a2878 : 0x241b38, 1);
+      row.fillRoundedRect(cx - rowW / 2, y - rowH / 2, rowW, rowH, 18);
+      row.lineStyle(3, PALETTE.playerRim, highlighted ? 0.8 : 0.35);
+      row.strokeRoundedRect(cx - rowW / 2, y - rowH / 2, rowW, rowH, 18);
+      items.push(row);
+      items.push(
+        this.add
+          .text(cx - rowW / 2 + 22, y - 20, name, { fontFamily: FONT, fontSize: '29px', fontStyle: 'bold', color: PALETTE.text })
+          .setOrigin(0, 0.5),
+      );
+      items.push(
+        this.add.text(cx - rowW / 2 + 22, y + 20, sub, { fontFamily: FONT, fontSize: '22px', color: PALETTE.textDim }).setOrigin(0, 0.5),
+      );
+      items.push(
+        this.add
+          .text(cx + rowW / 2 - 22, y, status, { fontFamily: FONT, fontSize: '28px', fontStyle: 'bold', color: statusColor })
+          .setOrigin(1, 0.5),
+      );
+      const zone = this.add.zone(cx, y, rowW, rowH).setInteractive({ useHandCursor: true });
+      zone.on('pointerup', () => {
+        this.unlockAudio();
+        onTap();
+      });
+      items.push(zone);
+    };
+    const saveMeta = (): void => {
+      void session.meta.flush().then((ok) => {
+        if (!ok && this.scene.isActive(SCENE.title)) this.showToast("Couldn't save — will retry next run");
+      });
+    };
+
+    if (this.unlockTab === 'power') {
     UNLOCK_CATALOGUE.forEach((def, i) => {
-      const y = top + 248 + i * 96;
+      const y = top + 242 + i * 94;
       const cost = nextCostFor(session.meta.state, def);
       const affordable = cost !== null && session.meta.state.currency >= cost;
       const row = this.add.graphics();
@@ -404,6 +483,78 @@ export default class TitleScene extends Phaser.Scene {
       });
       items.push(zone);
     });
+    } else if (this.unlockTab === 'looks') {
+      const equipped = session.meta.state.equipped;
+      addRow(top + 242, 'Default Look', 'No cosmetic equipped', equipped === null ? 'On' : 'Equip', equipped === null ? '#9fe8a8' : '#ffd166', equipped === null, () => {
+        if (session.meta.equipCosmetic(null)) {
+          saveMeta();
+          this.refreshBones();
+        }
+      });
+      COSMETICS.forEach((def, i) => {
+        const owned = session.meta.ownsCosmetic(def.id);
+        const isEquipped = equipped === def.id;
+        const shopOnly = def.bonesCost === null;
+        const affordable = def.bonesCost !== null && session.meta.state.currency >= def.bonesCost;
+        addRow(
+          top + 242 + (i + 1) * 94,
+          def.name,
+          def.description,
+          isEquipped ? 'On' : owned ? 'Equip' : shopOnly ? 'Shop' : `${def.bonesCost}`,
+          isEquipped || owned ? '#9fe8a8' : affordable || shopOnly ? '#ffd166' : PALETTE.textDim,
+          isEquipped || (!owned && (affordable || shopOnly)),
+          () => {
+            if (owned) {
+              if (session.meta.equipCosmetic(isEquipped ? null : def.id)) saveMeta();
+            } else if (shopOnly) {
+              if (shop.paymentsEnabled()) {
+                this.unlockTab = 'shop';
+              } else {
+                this.showToast('Premium look — only in the Shop');
+                return;
+              }
+            } else if (shop.buyWithBones(def.id)) {
+              session.meta.equipCosmetic(def.id);
+              this.showToast(`Unlocked: ${def.name}`);
+            } else {
+              this.showToast(`Need ${def.bonesCost} ${META_CURRENCY_NAME}`);
+              return;
+            }
+            this.refreshBones();
+          },
+        );
+      });
+    } else {
+      SHOP_SKUS.forEach((sku, i) => {
+        const def = cosmeticDef(sku.cosmeticId);
+        const owned = session.meta.ownsCosmetic(sku.cosmeticId);
+        const buying = this.buyingSku === sku.sku;
+        addRow(
+          top + 242 + i * 94,
+          def?.name ?? sku.sku,
+          def?.description ?? '',
+          owned ? 'Owned' : buying ? '…' : sku.priceLabel,
+          owned ? '#9fe8a8' : '#ffd166',
+          !owned && !buying,
+          () => {
+            if (owned || this.buyingSku !== null) return;
+            this.buyingSku = sku.sku;
+            this.refreshBones();
+            void shop.buyWithPayment(sku.sku).then((res) => {
+              this.buyingSku = null;
+              if (!this.scene.isActive(SCENE.title)) return;
+              if (res === 'ok') {
+                session.meta.equipCosmetic(sku.cosmeticId);
+                saveMeta();
+                this.showToast(`Unlocked: ${def?.name ?? 'cosmetic'}`);
+              } else if (res === 'cancelled') this.showToast('Purchase cancelled');
+              else this.showToast("Purchase didn't go through — try again");
+              this.refreshBones();
+            });
+          },
+        );
+      });
+    }
 
     const closeY = top + panelH - 76;
     const closePlate = this.add.graphics();
@@ -425,6 +576,14 @@ export default class TitleScene extends Phaser.Scene {
     items.push(closeZone);
 
     this.unlockPanel = this.add.container(0, 0, items).setDepth(100);
+  }
+
+  private getShop(): Shop {
+    if (!this.shop) {
+      const session = getSession();
+      this.shop = new Shop(session.platform, session.meta);
+    }
+    return this.shop;
   }
 
   private closeUnlocks(): void {

@@ -299,6 +299,41 @@ export class MetaProgression {
     return true;
   }
 
+  /** Spends Bones if affordable. Returns false (state unchanged) when not. */
+  spendCurrency(amount: number): boolean {
+    const cost = Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
+    if (cost <= 0 || this.state.currency < cost) return false;
+    this.state.currency -= cost;
+    this.dirty = true;
+    return true;
+  }
+
+  ownsCosmetic(id: string): boolean {
+    return this.state.cosmetics.includes(id);
+  }
+
+  /**
+   * Grants a cosmetic (shop purchase or Bones unlock). First-ever cosmetic
+   * auto-equips. Returns false when already owned. Call flush() to persist.
+   */
+  grantCosmetic(id: string): boolean {
+    if (!id || this.ownsCosmetic(id)) return false;
+    this.state.cosmetics.push(id);
+    if (this.state.equipped === null) this.state.equipped = id;
+    this.dirty = true;
+    return true;
+  }
+
+  /** Equips an owned cosmetic, or unequips with null. Call flush() to persist. */
+  equipCosmetic(id: string | null): boolean {
+    if (id !== null && !this.ownsCosmetic(id)) return false;
+    if (this.state.equipped !== id) {
+      this.state.equipped = id;
+      this.dirty = true;
+    }
+    return true;
+  }
+
   /** Bonuses to hand to Sim for the next run start. */
   runBonuses(): RunBonuses {
     return { startingPartIds: startingPartIdsFor(this.state), statMultipliers: statMultipliersFor(this.state) };
