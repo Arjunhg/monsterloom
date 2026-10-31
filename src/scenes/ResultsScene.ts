@@ -12,6 +12,7 @@ import Phaser from 'phaser';
 import { FONT, GAME_HEIGHT, GAME_WIDTH, PALETTE, SCENE, SFX } from '../game/keys';
 import { columnLayout, onResizeSettled, type ColumnLayout } from '../game/layout';
 import { getSession, syncMetaBonuses, type RunMode } from '../game/Session';
+import { encodeChallenge } from '../meta/ChallengeLink';
 import { dailyScore, submitPendingDailyScore } from '../meta/DailyChallenge';
 import { META_CURRENCY_NAME } from '../meta/MetaProgression';
 import { getAudio } from '../juice/AudioManager';
@@ -60,6 +61,9 @@ export default class ResultsScene extends Phaser.Scene {
   private dailyStatusText: Phaser.GameObjects.Text | null = null;
   private dailySubmitFailed = false;
   private submittingDaily = false;
+  /** Friend-challenge target snapshot (task 22). */
+  private runTarget: number | null = null;
+  private sharingCard = false;
   private visitAlive = false;
 
   constructor() {
@@ -82,6 +86,8 @@ export default class ResultsScene extends Phaser.Scene {
       this.runSummary = { elapsed: st.clock.elapsed, kills: st.stats.kills, victory: st.outcome === 'victory' };
       this.runKind = session.runMode;
       this.runDailyDate = session.dailyDate;
+      this.runTarget = session.challengeTarget;
+      this.sharingCard = false;
       this.dailyStatus = '';
       this.dailySubmitFailed = false;
       this.submittingDaily = false;
@@ -153,8 +159,9 @@ export default class ResultsScene extends Phaser.Scene {
     this.drawStatsCard(state, victory);
 
     // Buttons.
-    this.makeButton(cx, oy + 1340, 480, BUTTON_H, 'Another night', '50px', () => this.anotherNight());
-    this.makeButton(cx, oy + 1470, 320, BUTTON_H - 16, 'Title', '42px', () => this.toTitle());
+    this.makeButton(cx, oy + 1312, 480, BUTTON_H, 'Another night', '50px', () => this.anotherNight());
+    this.makeButton(cx - 140, oy + 1448, 264, BUTTON_H - 20, 'Share Card', '36px', () => void this.shareCard());
+    this.makeButton(cx + 150, oy + 1448, 244, BUTTON_H - 20, 'Title', '40px', () => this.toTitle());
     this.input.keyboard?.on('keydown-ENTER', () => this.anotherNight());
     this.input.keyboard?.on('keydown-SPACE', () => this.anotherNight());
 
@@ -269,7 +276,10 @@ export default class ResultsScene extends Phaser.Scene {
       ['Parts built', String(parts.count)],
       [`${META_CURRENCY_NAME} earned`, this.metaReward === null ? '…' : `+${this.metaReward}`],
     ];
-    if (this.runKind !== 'normal') {
+    if (this.runKind === 'challenge') {
+      const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory);
+      rows.push(['Score / Target', `${score} / ${this.runTarget ?? '—'}`]);
+    } else if (this.runKind !== 'normal') {
       rows.push(['Daily score', String(dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory))]);
     }
     const rowGap = rows.length > 6 ? 46 : 52;
@@ -300,7 +310,18 @@ export default class ResultsScene extends Phaser.Scene {
 
     // Seed (Req 17.3), small text at the card's bottom. Daily runs show the
     // submission status here instead; tapping it retries a failed submit.
-    if (this.runKind === 'normal') {
+    if (this.runKind === 'challenge') {
+      const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory);
+      const target = this.runTarget ?? 0;
+      this.add
+        .text(
+          cx,
+          top + h - 20,
+          score >= target ? `Challenge beaten! Target was ${target}` : `Challenge · Target ${target} · Missed by ${target - score}`,
+          { fontFamily: FONT, fontSize: '22px', color: score >= target ? '#9fe8a8' : PALETTE.textDim, align: 'center', wordWrap: { width: w - 40 } },
+        )
+        .setOrigin(0.5, 1);
+    } else if (this.runKind === 'normal') {
       this.add
         .text(cx, top + h - 20, `Seed ${state.seed}`, { fontFamily: FONT, fontSize: '22px', color: PALETTE.textDim })
         .setOrigin(0.5, 1);
@@ -404,6 +425,146 @@ export default class ResultsScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Monster Card share (task 22.3, Req 28.1-28.2): renders the card, encodes
+   * this run's seed + score as a challenge payload, and opens the host share
+   * flow. On share failure/cancel: toast + copy a plain challenge link.
+   */
+  private async shareCard(): Promise<void> {
+    if (this.sharingCard || !this.canAct()) return;
+    this.sharingCard = true;
+    this.click();
+    try {
+      const session = getSession();
+      const state = session.sim.state;
+      const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory);
+      const encoded = encodeChallenge({ v: 1, seed: state.seed >>> 0, score });
+      const blob = await this.renderCardBlob(state.outcome === 'victory', score);
+      let shared = false;
+      try {
+        const res = await session.platform.share({
+          image: blob,
+          text: `I scored ${score} in Monster Mash Survivor — beat my monster!`,
+          shareParams: { challenge: encoded },
+          title: 'Monster Mash Survivor',
+          filename: 'monster-card.png',
+        });
+        shared = res.completed;
+      } catch {
+        shared = false;
+      }
+      if (!this.visitAlive) return;
+      if (shared) {
+        this.showToast('Card shared!');
+        return;
+      }
+      let copied = false;
+      try {
+        const base = `${window.location.origin}${window.location.pathname}`;
+        await navigator.clipboard.writeText(`${base}?challenge=${encoded}`);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+      if (this.visitAlive) {
+        this.showToast(copied ? 'Share unavailable — challenge link copied' : 'Share unavailable');
+      }
+    } catch {
+      if (this.visitAlive) this.showToast("Couldn't create the card — try again");
+    } finally {
+      this.sharingCard = false;
+    }
+  }
+
+  /** Renders the 720×960 Monster Card off-screen and snapshots it to a PNG Blob. */
+  private renderCardBlob(victory: boolean, score: number): Promise<Blob> {
+    const W = 720;
+    const H = 960;
+    const state = getSession().sim.state;
+    const rt = this.make.renderTexture({ width: W, height: H }, false);
+    const temps: Phaser.GameObjects.GameObject[] = [];
+    try {
+      const bg = this.make.graphics({}, false);
+      temps.push(bg);
+      if (victory) bg.fillGradientStyle(0x3a2a6e, 0x3a2a6e, 0xf2a16b, 0xf2a16b, 1);
+      else bg.fillGradientStyle(PALETTE.night, PALETTE.night, 0x2a1850, 0x2a1850, 1);
+      bg.fillRect(0, 0, W, H);
+      bg.lineStyle(10, PALETTE.playerRim, 0.85);
+      bg.strokeRect(5, 5, W - 10, H - 10);
+      bg.fillStyle(0x0b0716, 0.55);
+      bg.fillEllipse(W / 2, 560, 340, 72);
+      rt.draw(bg);
+
+      const title = this.make.text(
+        {
+          x: W / 2,
+          y: 92,
+          text: 'Monster Mash\nSurvivor',
+          style: { fontFamily: FONT, fontSize: '58px', fontStyle: 'bold', color: PALETTE.text, align: 'center', stroke: '#0b0716', strokeThickness: 8 },
+        },
+        false,
+      );
+      title.setOrigin(0.5);
+      temps.push(title);
+      rt.draw(title);
+
+      // Static portrait of the final build (parts + mutations), scaled up.
+      const portrait = new PlayerRenderer(this, state, { interactive: false });
+      portrait.container.setPosition(W / 2, 440).setScale(6);
+      rt.draw(portrait.container);
+      portrait.destroy();
+
+      const parts = partsSummary(state);
+      const lines: Array<[string, number, string, string]> = [
+        [victory ? 'SURVIVED THE NIGHT' : 'THE NIGHT GOT THEM', 648, '44px', victory ? '#ffe9a8' : '#d8d4f0'],
+        [`Survived ${formatTime(state.clock.elapsed)} · ${state.stats.kills} kills`, 712, '36px', PALETTE.text],
+        [`Score ${score}`, 772, '44px', '#ffd166'],
+        [parts.list, 836, '26px', PALETTE.textDim],
+        ['Beat my score — tap the link to try!', 912, '28px', PALETTE.text],
+      ];
+      for (const [text, y, size, color] of lines) {
+        const t = this.make.text(
+          {
+            x: W / 2,
+            y,
+            text,
+            style: { fontFamily: FONT, fontSize: size, fontStyle: 'bold', color, align: 'center', wordWrap: { width: W - 80 } },
+          },
+          false,
+        );
+        t.setOrigin(0.5);
+        temps.push(t);
+        rt.draw(t);
+      }
+    } catch (err) {
+      for (const t of temps) t.destroy();
+      rt.destroy();
+      return Promise.reject(err instanceof Error ? err : new Error('card render failed'));
+    }
+    for (const t of temps) t.destroy();
+    return new Promise<Blob>((resolve, reject) => {
+      rt.snapshot((img) => {
+        try {
+          const image = img as HTMLImageElement;
+          const canvas = document.createElement('canvas');
+          canvas.width = W;
+          canvas.height = H;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('no 2d context');
+          ctx.drawImage(image, 0, 0, W, H);
+          canvas.toBlob((blob) => {
+            rt.destroy();
+            if (blob) resolve(blob);
+            else reject(new Error('card snapshot failed'));
+          }, 'image/png');
+        } catch (err) {
+          rt.destroy();
+          reject(err instanceof Error ? err : new Error('card snapshot failed'));
+        }
+      });
+    });
+  }
+
   /** Small non-blocking message near the top of the screen. */
   private showToast(message: string): void {
     const cx = this.layout.width / 2;
@@ -443,6 +604,7 @@ export default class ResultsScene extends Phaser.Scene {
     // Another Night is always a normal run: restore meta bonuses and seed.
     session.runMode = 'normal';
     session.dailyDate = null;
+    session.challengeTarget = null;
     syncMetaBonuses(session);
     // In-place reset (Req 15.2–15.3); new random seed unless ?seed= pins it.
     // Re-enter fullscreen if the player left it since the run started.

@@ -5,6 +5,7 @@
  * settings. Scenes get it with `getSession()`; main.ts creates it with
  * `initSession(platform)` before the Phaser game starts.
  */
+import { decodeChallenge, type ChallengePayload } from '../meta/ChallengeLink';
 import { DailyChallenge } from '../meta/DailyChallenge';
 import { MetaProgression } from '../meta/MetaProgression';
 import type { PlatformService } from '../platform/PlatformService';
@@ -18,7 +19,7 @@ export interface Settings {
 }
 
 /** Which kind of run is (or was last) in progress. Daily runs disable meta stat bonuses. */
-export type RunMode = 'normal' | 'daily-ranked' | 'daily-practice';
+export type RunMode = 'normal' | 'daily-ranked' | 'daily-practice' | 'challenge';
 
 export interface Session {
   readonly platform: PlatformService;
@@ -35,6 +36,12 @@ export interface Session {
   runMode: RunMode;
   /** UTC date key of the current daily run (claimed at run start), else null. */
   dailyDate: string | null;
+  /** Valid challenge payload from launch params, waiting for Title to start it. */
+  pendingChallenge: ChallengePayload | null;
+  /** Target score of the current challenge run, else null. */
+  challengeTarget: number | null;
+  /** Resolves once launch params were read and any challenge payload decoded. */
+  readonly challengeReady: Promise<void>;
   readonly input: InputManager;
   /** Kept for the whole session (Req 18.6). */
   readonly settings: Settings;
@@ -90,6 +97,19 @@ export function initSession(platform: PlatformService): Session {
     .catch(() => {
       // DailyChallenge.load never rejects; keep the session alive regardless.
     });
+  // Friend challenge (task 22): decode the `challenge` launch param. A
+  // malformed payload is ignored and the title screen opens normally (28.6).
+  const challengeReady = platform
+    .getLaunchParams()
+    .then((params) => {
+      const raw = params.challenge;
+      if (!raw || !session) return;
+      const payload = decodeChallenge(raw);
+      if (payload) session.pendingChallenge = payload;
+    })
+    .catch(() => {
+      // Launch params are best-effort; no challenge is a normal boot.
+    });
   session = {
     platform,
     sim,
@@ -99,6 +119,9 @@ export function initSession(platform: PlatformService): Session {
     dailyReady,
     runMode: 'normal',
     dailyDate: null,
+    pendingChallenge: null,
+    challengeTarget: null,
+    challengeReady,
     input: new InputManager(hasTouch),
     settings: { musicMuted: false, sfxMuted: false, shakeEnabled: true },
     flags,

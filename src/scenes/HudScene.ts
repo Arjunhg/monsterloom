@@ -19,6 +19,7 @@ import Phaser from 'phaser';
 import { FONT, GAME_WIDTH, PALETTE, RARITY_COLOR, SCENE, SFX, TEX } from '../game/keys';
 import { columnLayout, keepFitted } from '../game/layout';
 import { getSession, type Session } from '../game/Session';
+import { dailyScore } from '../meta/DailyChallenge';
 import { getAudio } from '../juice/AudioManager';
 import { creditRate } from '../data/balance';
 import { EventType } from '../sim/EventBus';
@@ -142,6 +143,9 @@ export default class HudScene extends Phaser.Scene {
   private dawnIcon!: Phaser.GameObjects.Graphics;
   private timeText!: Phaser.GameObjects.Text;
   private killText!: Phaser.GameObjects.Text;
+  /** Friend-challenge target line (task 22), visible only in challenge runs. */
+  private targetText!: Phaser.GameObjects.Text;
+  private targetBeaten = false;
   private partRow!: Phaser.GameObjects.Container;
   private pauseBg!: Phaser.GameObjects.Rectangle;
   private pauseIcon!: Phaser.GameObjects.Image;
@@ -184,6 +188,7 @@ export default class HudScene extends Phaser.Scene {
   create(): void {
     // Scene instances are reused across runs: reset per-run fields.
     this.session = getSession();
+    this.targetBeaten = false;
     this.pauseArmed = false;
     this.lastPhaseBucket = -1;
     this.lastBuildSize = -1;
@@ -245,6 +250,21 @@ export default class HudScene extends Phaser.Scene {
     // Kills.
     setTextIfChanged(this.killText, `☠ ${state.stats.kills}`);
 
+    // Friend-challenge target (task 22): live score vs the sharer's target.
+    const target = this.session.runMode === 'challenge' ? this.session.challengeTarget : null;
+    if (target !== null) {
+      if (!this.targetText.visible) this.targetText.setVisible(true);
+      const current = dailyScore(state.clock.elapsed, state.stats.kills, state.outcome === 'victory');
+      setTextIfChanged(this.targetText, `Target ${target} · ${current}`);
+      const beaten = current >= target;
+      if (beaten !== this.targetBeaten) {
+        this.targetBeaten = beaten;
+        this.targetText.setColor(beaten ? '#9fe8a8' : '#ffd166');
+      }
+    } else if (this.targetText.visible) {
+      this.targetText.setVisible(false);
+    }
+
     // Part row safety net (e.g. sim restarted while the HUD stayed alive).
     const size = state.build.parts.size * 100 + state.build.mutations.size;
     if (size !== this.lastBuildSize) this.rebuildPartRow();
@@ -298,6 +318,7 @@ export default class HudScene extends Phaser.Scene {
     this.dawnIcon = this.add.graphics();
     this.timeText = this.add.text(0, 0, '', this.textStyle(30)).setOrigin(0, 0.5);
     this.killText = this.add.text(0, 0, '', this.textStyle(30)).setOrigin(1, 0.5);
+    this.targetText = this.add.text(0, 0, '', this.textStyle(26, '#ffd166')).setOrigin(1, 0).setVisible(false);
 
     this.partRow = this.add.container(0, 0);
 
@@ -496,6 +517,7 @@ export default class HudScene extends Phaser.Scene {
     const H = this.scale.height;
 
     const pauseX = W - R - PAUSE_SIZE;
+    this.targetText.setPosition(W - R, T + PAUSE_SIZE + 10);
     this.pauseBg.setPosition(pauseX, T);
     this.pauseIcon.setPosition(pauseX + PAUSE_SIZE / 2, T + PAUSE_SIZE / 2);
 
