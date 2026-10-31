@@ -40,6 +40,7 @@
  * player hits the view rect (centred on the player) expanded by m.
  */
 import { creditRate, eliteChance } from '../../data/balance';
+import { BLOOD_MOON_SPAWN_MULT } from './BloodMoonSystem';
 import { EventType } from '../EventBus';
 import { spawnEnemy } from '../entities';
 import { ENEMY_FLAG, type RunState } from '../RunState';
@@ -228,7 +229,8 @@ export const spawnDirector: System = (ctx, dt) => {
   // Bigger views earn credits faster and allow more enemies (exactly 1 / maxActive on 720×1560).
   const density = viewDensityScale(ctx.view, b);
   const maxActive = effectiveMaxActiveFor(density, b);
-  const rate = creditRate(state.clock.elapsed, b) * density;
+  const surgeMult = state.bloodMoon.active ? BLOOD_MOON_SPAWN_MULT : 1;
+  const rate = creditRate(state.clock.elapsed, b) * density * surgeMult;
 
   // Horde lane first so the regular monsters keep their v1 density.
   if (pools.horde.types.length > 0) {

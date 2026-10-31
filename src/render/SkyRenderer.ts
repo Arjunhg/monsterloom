@@ -116,10 +116,16 @@ export class SkyRenderer {
     const phase = skyPhase(clock.elapsed, clock.duration);
     const bright = skyBrightness(phase);
     // Redraw only when the phase moved noticeably (≈ 500 steps over a run) or the view resized.
-    const key = Math.round(phase * 500);
+    // Blood Moon (Req 31) flips the palette to red while a surge is active.
+    const surge = this.state.bloodMoon.active;
+    const key = Math.round(phase * 500) + (surge ? 10000 : 0);
     if (key !== this.lastPhaseKey || resized) {
       this.lastPhaseKey = key;
-      const [top, bottom] = skyColors(phase);
+      let [top, bottom] = skyColors(phase);
+      if (surge) {
+        top = lerpColor(top, 0x8f1d2c, 0.65);
+        bottom = lerpColor(bottom, 0x5a1020, 0.65);
+      }
       const a = OVERLAY_ALPHA_NIGHT + (OVERLAY_ALPHA_DAWN - OVERLAY_ALPHA_NIGHT) * bright;
       const g = this.overlay;
       g.clear();

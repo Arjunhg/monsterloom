@@ -54,7 +54,7 @@ export default class ResultsScene extends Phaser.Scene {
   private metaReward: number | null = null;
   private bonesValueText: Phaser.GameObjects.Text | null = null;
   /** Finished-run stats snapshot, taken at create so a fast restart can't skew the reward. */
-  private runSummary = { elapsed: 0, kills: 0, bonusKills: 0, victory: false };
+  private runSummary = { elapsed: 0, kills: 0, bonusKills: 0, surgeKills: 0, victory: false };
   /** Daily-run context snapshot (task 21). */
   private runKind: RunMode = 'normal';
   private runDailyDate: string | null = null;
@@ -88,6 +88,7 @@ export default class ResultsScene extends Phaser.Scene {
         elapsed: st.clock.elapsed,
         kills: st.stats.kills,
         bonusKills: st.stats.bonusKills,
+        surgeKills: st.stats.surgeKills,
         victory: st.outcome === 'victory',
       };
       this.runKind = session.runMode;
@@ -389,7 +390,12 @@ export default class ResultsScene extends Phaser.Scene {
   private awardMeta(): void {
     if (this.metaReward !== null) return;
     const session = getSession();
-    this.metaReward = session.meta.awardRun(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory);
+    this.metaReward = session.meta.awardRun(
+      this.runSummary.elapsed,
+      this.runSummary.kills,
+      this.runSummary.victory,
+      this.runSummary.surgeKills,
+    );
     if (this.visitAlive) this.bonesValueText?.setText(`+${this.metaReward}`);
     void session.meta.flush().then((ok) => {
       if (ok || !this.visitAlive) return;

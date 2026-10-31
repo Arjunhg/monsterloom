@@ -415,9 +415,11 @@ export interface RunState {
     introduced: Set<string>;
     swarmIdx: number;
   };
-  stats: { kills: number; damageDealt: number; dpsWindow: Float32Array; bonusKills: number };
+  stats: { kills: number; damageDealt: number; dpsWindow: Float32Array; bonusKills: number; surgeKills: number };
   /** Frenzy meter (Req 30): charge, active window, kill diffing, saved stats. */
   frenzy: { meter: number; activeLeft: number; lastKills: number; savedDamage: number; savedMoveSpeed: number };
+  /** Blood Moon surges (Req 31): seeded window starts, live flag, kill diffing. */
+  bloodMoon: { starts: number[]; seed: number; active: boolean; lastKills: number };
   readonly events: EventBus;
 }
 
@@ -503,8 +505,9 @@ export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG, 
       bans: b.menu.bans,
     },
     director: { credits: 0, specialCredits: 0, quadrantBag: [], stageIdx: 0, introduced: new Set(), swarmIdx: 0 },
-    stats: { kills: 0, damageDealt: 0, dpsWindow: new Float32Array(DPS_WINDOW_SEC), bonusKills: 0 },
+    stats: { kills: 0, damageDealt: 0, dpsWindow: new Float32Array(DPS_WINDOW_SEC), bonusKills: 0, surgeKills: 0 },
     frenzy: { meter: 0, activeLeft: 0, lastKills: 0, savedDamage: 1, savedMoveSpeed: 1 },
+    bloodMoon: { starts: [], seed: -1, active: false, lastKills: 0 },
     events: new EventBus(),
   };
   return state;
@@ -568,6 +571,11 @@ export function resetRunState(state: RunState, seed?: number, bonuses?: RunBonus
   state.stats.damageDealt = 0;
   state.stats.dpsWindow.fill(0);
   state.stats.bonusKills = 0;
+  state.stats.surgeKills = 0;
+  state.bloodMoon.starts.length = 0;
+  state.bloodMoon.seed = -1;
+  state.bloodMoon.active = false;
+  state.bloodMoon.lastKills = 0;
   // p.stats was just restored from bonuses above, so a mid-Frenzy reset is clean.
   state.frenzy.meter = 0;
   state.frenzy.activeLeft = 0;
