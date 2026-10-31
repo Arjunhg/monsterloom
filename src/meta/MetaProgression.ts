@@ -41,10 +41,12 @@ export interface MetaState {
   cosmetics: string[];
   /** Equipped cosmetic id, or null. */
   equipped: string | null;
+  /** Unlocked achievement ids (Req 32, recognition only). */
+  achievements: string[];
 }
 
 export function defaultMetaState(): MetaState {
-  return { version: META_VERSION, currency: 0, unlocks: [], statBonuses: {}, cosmetics: [], equipped: null };
+  return { version: META_VERSION, currency: 0, unlocks: [], statBonuses: {}, cosmetics: [], equipped: null, achievements: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +172,10 @@ export function validateMetaState(value: unknown): MetaState | null {
   if (!cosmetics) return null;
   const equipped = value.equipped;
   if (equipped !== null && (typeof equipped !== 'string' || !cosmetics.includes(equipped))) return null;
-  return { version: META_VERSION, currency, unlocks, statBonuses, cosmetics, equipped };
+  // Achievements are lenient (Req 32.4): missing on pre-v4 blobs, and a
+  // malformed field must not invalidate otherwise-good progression data.
+  const achievements = stringList(value.achievements) ?? [];
+  return { version: META_VERSION, currency, unlocks, statBonuses, cosmetics, equipped, achievements };
 }
 
 export function serializeMetaState(state: MetaState): string {
@@ -195,6 +200,7 @@ function cloneState(state: MetaState): MetaState {
     statBonuses: { ...state.statBonuses },
     cosmetics: [...state.cosmetics],
     equipped: state.equipped,
+    achievements: [...state.achievements],
   };
 }
 
@@ -334,6 +340,25 @@ export class MetaProgression {
       this.dirty = true;
     }
     return true;
+  }
+
+  hasAchievement(id: string): boolean {
+    return this.state.achievements.includes(id);
+  }
+
+  /**
+   * Unlocks achievements (idempotent, never revokes). Returns the ids that
+   * were newly unlocked. Call flush() to persist.
+   */
+  unlockAchievements(ids: readonly string[]): string[] {
+    const added: string[] = [];
+    for (const id of ids) {
+      if (!id || this.hasAchievement(id)) continue;
+      this.state.achievements.push(id);
+      added.push(id);
+    }
+    if (added.length > 0) this.dirty = true;
+    return added;
   }
 
   /** Bonuses to hand to Sim for the next run start. */

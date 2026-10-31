@@ -15,6 +15,8 @@ import { getSession, syncMetaBonuses, type RunMode } from '../game/Session';
 import { encodeChallenge } from '../meta/ChallengeLink';
 import { dailyScore, submitPendingDailyScore } from '../meta/DailyChallenge';
 import { META_CURRENCY_NAME } from '../meta/MetaProgression';
+import { evaluateAchievements } from '../meta/Achievements';
+import { AchievementBanner } from '../render/AchievementBanner';
 import { cosmeticLookFor } from '../meta/Shop';
 import { getAudio } from '../juice/AudioManager';
 import { PlayerRenderer } from '../render/PlayerRenderer';
@@ -52,6 +54,9 @@ export default class ResultsScene extends Phaser.Scene {
   private leaving = false;
   /** Bones awarded for this visit's run (task 20); null until awarded. */
   private metaReward: number | null = null;
+  /** Achievement names unlocked by this run (Req 32), shown on the card. */
+  private newBadges: string[] = [];
+  private achievementBanner: AchievementBanner | null = null;
   private bonesValueText: Phaser.GameObjects.Text | null = null;
   /** Finished-run stats snapshot, taken at create so a fast restart can't skew the reward. */
   private runSummary = { elapsed: 0, kills: 0, bonusKills: 0, surgeKills: 0, victory: false };
@@ -80,8 +85,10 @@ export default class ResultsScene extends Phaser.Scene {
     this.visitAlive = true;
     this.bonesValueText = null;
     this.dailyStatusText = null;
+    this.achievementBanner = null;
     if (!relayout) {
       this.metaReward = null;
+      this.newBadges = [];
       const session = getSession();
       const st = session.sim.state;
       this.runSummary = {
@@ -286,6 +293,7 @@ export default class ResultsScene extends Phaser.Scene {
       ['Parts built', String(parts.count)],
       [`${META_CURRENCY_NAME} earned`, this.metaReward === null ? '…' : `+${this.metaReward}`],
     ];
+    if (this.newBadges.length > 0) rows.push(['New badges', this.newBadges.join(', ')]);
     if (this.runKind === 'challenge') {
       const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory);
       rows.push(['Score / Target', `${score} / ${this.runTarget ?? '—'}`]);
@@ -397,6 +405,34 @@ export default class ResultsScene extends Phaser.Scene {
       this.runSummary.surgeKills,
     );
     if (this.visitAlive) this.bonesValueText?.setText(`+${this.metaReward}`);
+    // Achievements (Req 32): evaluate once with the award; toast + card row.
+    const st = session.sim.state;
+    const isDaily = this.runKind === 'daily-ranked' || this.runKind === 'daily-practice';
+    const dailyFinishes = isDaily ? session.daily.recordFinish() : session.daily.state.finishedCount;
+    if (isDaily) void session.daily.flush();
+    const score = dailyScore(
+      this.runSummary.elapsed,
+      this.runSummary.kills + this.runSummary.bonusKills,
+      this.runSummary.victory,
+    );
+    const unlocked = evaluateAchievements(session.meta, {
+      victory: this.runSummary.victory,
+      kills: this.runSummary.kills,
+      bestNoDamageSec: st.stats.bestNoDamageSec,
+      mutationsOwned: st.build.mutations.size,
+      challengeBeaten: this.runKind === 'challenge' && this.runTarget !== null && score >= this.runTarget,
+      dailyFinishes,
+      cosmeticsOwned: session.meta.state.cosmetics.length,
+    });
+    if (unlocked.length > 0) {
+      this.newBadges = unlocked.map((a) => a.name);
+      if (this.visitAlive) {
+        if (!this.achievementBanner) {
+          this.achievementBanner = new AchievementBanner(this, this.layout.width / 2, this.layout.oy + 210);
+        }
+        for (const a of unlocked) this.achievementBanner.show(a.name, a.description, 500);
+      }
+    }
     void session.meta.flush().then((ok) => {
       if (ok || !this.visitAlive) return;
       this.showToast(

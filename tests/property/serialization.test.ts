@@ -28,8 +28,9 @@ const metaStateArb: fc.Arbitrary<MetaState> = fc
       { withDeletedKeys: true },
     ),
     cosmetics: fc.uniqueArray(fc.string({ minLength: 1, maxLength: 12 }), { maxLength: 4 }),
+    achievements: fc.uniqueArray(fc.string({ minLength: 1, maxLength: 12 }), { maxLength: 4 }),
   })
-  .map(({ currency, unlocks, statBonuses, cosmetics }): MetaState => {
+  .map(({ currency, unlocks, statBonuses, cosmetics, achievements }): MetaState => {
     // Drop zero levels: validate() normalizes them out, so the canonical
     // form compared after a round trip must not carry them either.
     const bonuses: MetaState['statBonuses'] = {};
@@ -41,6 +42,7 @@ const metaStateArb: fc.Arbitrary<MetaState> = fc
       statBonuses: bonuses,
       cosmetics,
       equipped: cosmetics[0] ?? null,
+      achievements,
     };
   });
 

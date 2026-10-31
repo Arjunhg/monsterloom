@@ -13,6 +13,9 @@ export const clockSystem: System = (ctx, dt) => {
   const clock = state.clock;
   const step = dt > 0 && Number.isFinite(dt) ? dt : 0;
   clock.elapsed = Math.min(clock.duration, clock.elapsed + step);
+  // No-damage streak for the Untouchable achievement (Req 32).
+  state.stats.noDamageSec += step;
+  if (state.stats.noDamageSec > state.stats.bestNoDamageSec) state.stats.bestNoDamageSec = state.stats.noDamageSec;
   if (clock.elapsed >= clock.duration && state.player.hp > 0) {
     state.outcome = 'victory';
     state.events.push(EventType.runEnded, 1);

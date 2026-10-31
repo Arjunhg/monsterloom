@@ -61,10 +61,12 @@ export interface DailyState {
   rankedDate: string | null;
   /** Ranked score recorded at run end but not yet accepted by the leaderboard. */
   pending: PendingDailyScore | null;
+  /** Lifetime daily-mode runs finished (Daily Devotee achievement, Req 32). */
+  finishedCount: number;
 }
 
 export function defaultDailyState(): DailyState {
-  return { rankedDate: null, pending: null };
+  return { rankedDate: null, pending: null, finishedCount: 0 };
 }
 
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -82,8 +84,13 @@ export function validateDailyState(value: unknown): DailyState | null {
   if (!isRecord(value)) return null;
   const rankedDate = value.rankedDate;
   if (rankedDate !== null && (typeof rankedDate !== 'string' || !DATE_KEY_RE.test(rankedDate))) return null;
+  // Lenient: pre-v4 blobs lack finishedCount; a bad value must not lose the claim.
+  const finishedCount =
+    typeof value.finishedCount === 'number' && Number.isInteger(value.finishedCount) && value.finishedCount >= 0
+      ? value.finishedCount
+      : 0;
   const pending = value.pending;
-  if (pending === null) return { rankedDate, pending: null };
+  if (pending === null) return { rankedDate, pending: null, finishedCount };
   if (!isRecord(pending)) return null;
   if (typeof pending.date !== 'string' || !DATE_KEY_RE.test(pending.date)) return null;
   if (!isNonNegativeFinite(pending.score)) return null;
@@ -92,6 +99,7 @@ export function validateDailyState(value: unknown): DailyState | null {
   if (typeof pending.victory !== 'boolean') return null;
   return {
     rankedDate,
+    finishedCount,
     pending: {
       date: pending.date,
       score: pending.score,
@@ -178,6 +186,13 @@ export class DailyChallenge {
   }
 
   /** Records a finished ranked run's score until the leaderboard accepts it. */
+  /** Counts a finished daily-mode run (ranked or practice). Call flush() to persist. */
+  recordFinish(): number {
+    this.state.finishedCount += 1;
+    this.dirty = true;
+    return this.state.finishedCount;
+  }
+
   recordPending(pending: PendingDailyScore): void {
     this.state.pending = { ...pending };
     this.dirty = true;
