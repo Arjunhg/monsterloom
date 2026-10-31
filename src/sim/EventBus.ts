@@ -37,6 +37,10 @@ export const EventType = {
   tokenCollected: 14,
   /** a = 1 victory / 0 defeat */
   runEnded: 15,
+  /** Frenzy window started (Req 30) */
+  frenzyStarted: 16,
+  /** Frenzy window ended (Req 30) */
+  frenzyEnded: 17,
 } as const;
 
 export type EventTypeName = keyof typeof EventType;

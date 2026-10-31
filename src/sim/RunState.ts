@@ -415,7 +415,9 @@ export interface RunState {
     introduced: Set<string>;
     swarmIdx: number;
   };
-  stats: { kills: number; damageDealt: number; dpsWindow: Float32Array };
+  stats: { kills: number; damageDealt: number; dpsWindow: Float32Array; bonusKills: number };
+  /** Frenzy meter (Req 30): charge, active window, kill diffing, saved stats. */
+  frenzy: { meter: number; activeLeft: number; lastKills: number; savedDamage: number; savedMoveSpeed: number };
   readonly events: EventBus;
 }
 
@@ -501,7 +503,8 @@ export function createRunState(seed?: number, config: GameConfig = GAME_CONFIG, 
       bans: b.menu.bans,
     },
     director: { credits: 0, specialCredits: 0, quadrantBag: [], stageIdx: 0, introduced: new Set(), swarmIdx: 0 },
-    stats: { kills: 0, damageDealt: 0, dpsWindow: new Float32Array(DPS_WINDOW_SEC) },
+    stats: { kills: 0, damageDealt: 0, dpsWindow: new Float32Array(DPS_WINDOW_SEC), bonusKills: 0 },
+    frenzy: { meter: 0, activeLeft: 0, lastKills: 0, savedDamage: 1, savedMoveSpeed: 1 },
     events: new EventBus(),
   };
   return state;
@@ -564,6 +567,13 @@ export function resetRunState(state: RunState, seed?: number, bonuses?: RunBonus
   state.stats.kills = 0;
   state.stats.damageDealt = 0;
   state.stats.dpsWindow.fill(0);
+  state.stats.bonusKills = 0;
+  // p.stats was just restored from bonuses above, so a mid-Frenzy reset is clean.
+  state.frenzy.meter = 0;
+  state.frenzy.activeLeft = 0;
+  state.frenzy.lastKills = 0;
+  state.frenzy.savedDamage = p.stats.damage;
+  state.frenzy.savedMoveSpeed = p.stats.moveSpeed;
 
   state.events.clear();
 }

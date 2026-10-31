@@ -17,6 +17,7 @@ import { abilitySystem } from './systems/AbilitySystem';
 import { clockSystem } from './systems/ClockSystem';
 import { contactSystem } from './systems/ContactSystem';
 import { damageSystem } from './systems/DamageSystem';
+import { frenzySystem } from './systems/FrenzySystem';
 import { enemyAISystem } from './systems/EnemyAISystem';
 import { energySystem } from './systems/EnergySystem';
 import { mergeSystem } from './systems/MergeSystem';
@@ -100,6 +101,7 @@ export class Sim {
       mutationAbilitySystem, // 8b
       projectileSystem, // 9
       damageSystem, // 10
+      frenzySystem, // 10b (diffs stats.kills from DamageSystem)
       contactSystem, // 11
       orbSystem, // 12
       tokenSystem, // 12b (Upgrade_Tokens from Elites)

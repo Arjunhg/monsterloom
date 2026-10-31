@@ -25,6 +25,7 @@ import { creditRate } from '../data/balance';
 import { EventType } from '../sim/EventBus';
 import type { Rect } from '../sim/input/InputManager';
 import { fillFraction } from '../sim/systems/EnergySystem';
+import { frenzyView } from '../sim/systems/FrenzySystem';
 import { skyPhase, timeRemaining } from '../sim/systems/ClockSystem';
 import { bossId } from '../sim/behaviours/boss';
 
@@ -139,6 +140,11 @@ export default class HudScene extends Phaser.Scene {
   private hpText!: Phaser.GameObjects.Text;
   private energyBg!: Phaser.GameObjects.Rectangle;
   private energyFill!: Phaser.GameObjects.Rectangle;
+  /** Frenzy meter + active glow (Req 30). */
+  private frenzyBg!: Phaser.GameObjects.Rectangle;
+  private frenzyFill!: Phaser.GameObjects.Rectangle;
+  private frenzyGlow: Phaser.GameObjects.Rectangle[] = [];
+  private frenzyWasActive = false;
   private levelText!: Phaser.GameObjects.Text;
   private dawnIcon!: Phaser.GameObjects.Graphics;
   private timeText!: Phaser.GameObjects.Text;
@@ -226,7 +232,7 @@ export default class HudScene extends Phaser.Scene {
     if (paused === 'user' || paused === 'auto') this.showOverlay(paused);
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     const state = this.session.sim.state;
     const p = state.player;
 
@@ -238,6 +244,19 @@ export default class HudScene extends Phaser.Scene {
     // Energy + level (Req 8.5).
     this.energyFill.scaleX = fillFraction(state);
     setTextIfChanged(this.levelText, `Lv ${state.energy.levelUps}`);
+
+    // Frenzy meter (Req 30): charge fills it; while active it drains and glows.
+    const frenzy = frenzyView(state);
+    this.frenzyFill.scaleX = frenzy.active ? 1 - frenzy.activeT01 : Math.max(0.001, frenzy.meter01);
+    if (frenzy.active !== this.frenzyWasActive) {
+      this.frenzyWasActive = frenzy.active;
+      this.frenzyFill.setFillStyle(frenzy.active ? 0xffb03a : 0xff7a2f, 1);
+      if (!frenzy.active) for (const r of this.frenzyGlow) r.setAlpha(0);
+    }
+    if (frenzy.active) {
+      const glowA = 0.22 + 0.13 * Math.sin(time * 0.012);
+      for (const r of this.frenzyGlow) r.setAlpha(glowA);
+    }
 
     // Time to dawn (Req 13.5) + moon→sun icon.
     setTextIfChanged(this.timeText, formatTime(timeRemaining(state)));
@@ -254,7 +273,7 @@ export default class HudScene extends Phaser.Scene {
     const target = this.session.runMode === 'challenge' ? this.session.challengeTarget : null;
     if (target !== null) {
       if (!this.targetText.visible) this.targetText.setVisible(true);
-      const current = dailyScore(state.clock.elapsed, state.stats.kills, state.outcome === 'victory');
+      const current = dailyScore(state.clock.elapsed, state.stats.kills + state.stats.bonusKills, state.outcome === 'victory');
       setTextIfChanged(this.targetText, `Target ${target} · ${current}`);
       const beaten = current >= target;
       if (beaten !== this.targetBeaten) {
@@ -314,6 +333,13 @@ export default class HudScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setStrokeStyle(2, 0x000000, 0.8);
     this.energyFill = this.add.rectangle(0, 0, 10, ENERGY_H - 6, PALETTE.energy).setOrigin(0, 0);
+
+    this.frenzyBg = this.add.rectangle(0, 0, 10, 12, 0x0b0820, 0.7).setOrigin(0, 0).setStrokeStyle(2, 0x000000, 0.8);
+    this.frenzyFill = this.add.rectangle(0, 0, 10, 8, 0xff7a2f).setOrigin(0, 0);
+    // Screen-edge glow while Frenzy is active (top, bottom, left, right).
+    this.frenzyGlow = [0, 1, 2, 3].map(() =>
+      this.add.rectangle(0, 0, 10, 10, 0xff5a1f, 0).setOrigin(0, 0).setDepth(OVERLAY_DEPTH - 1),
+    );
 
     this.dawnIcon = this.add.graphics();
     this.timeText = this.add.text(0, 0, '', this.textStyle(30)).setOrigin(0, 0.5);
@@ -534,6 +560,15 @@ export default class HudScene extends Phaser.Scene {
     const ew = colW - LV_W;
     this.energyBg.setPosition(L + LV_W, ey).setSize(ew, ENERGY_H);
     this.energyFill.setPosition(L + LV_W + 3, ey + 3).setSize(ew - 6, ENERGY_H - 6);
+
+    const fy = ey + ENERGY_H + 4;
+    this.frenzyBg.setPosition(L, fy).setSize(colW, 12);
+    this.frenzyFill.setPosition(L + 2, fy + 2).setSize(colW - 4, 8);
+    const GLOW = 26;
+    this.frenzyGlow[0]?.setPosition(0, 0).setSize(W, GLOW);
+    this.frenzyGlow[1]?.setPosition(0, H - GLOW).setSize(W, GLOW);
+    this.frenzyGlow[2]?.setPosition(0, 0).setSize(GLOW, H);
+    this.frenzyGlow[3]?.setPosition(W - GLOW, 0).setSize(GLOW, H);
 
     const sy = T + 96;
     this.dawnIcon.setPosition(L + 16, sy);
