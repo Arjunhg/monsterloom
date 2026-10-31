@@ -54,7 +54,7 @@ export default class ResultsScene extends Phaser.Scene {
   private metaReward: number | null = null;
   private bonesValueText: Phaser.GameObjects.Text | null = null;
   /** Finished-run stats snapshot, taken at create so a fast restart can't skew the reward. */
-  private runSummary = { elapsed: 0, kills: 0, victory: false };
+  private runSummary = { elapsed: 0, kills: 0, bonusKills: 0, victory: false };
   /** Daily-run context snapshot (task 21). */
   private runKind: RunMode = 'normal';
   private runDailyDate: string | null = null;
@@ -84,7 +84,12 @@ export default class ResultsScene extends Phaser.Scene {
       this.metaReward = null;
       const session = getSession();
       const st = session.sim.state;
-      this.runSummary = { elapsed: st.clock.elapsed, kills: st.stats.kills, victory: st.outcome === 'victory' };
+      this.runSummary = {
+        elapsed: st.clock.elapsed,
+        kills: st.stats.kills,
+        bonusKills: st.stats.bonusKills,
+        victory: st.outcome === 'victory',
+      };
       this.runKind = session.runMode;
       this.runDailyDate = session.dailyDate;
       this.runTarget = session.challengeTarget;
@@ -151,7 +156,7 @@ export default class ResultsScene extends Phaser.Scene {
     if (!relayout && this.runKind === 'daily-ranked' && this.runDailyDate) {
       session.daily.recordPending({
         date: this.runDailyDate,
-        score: dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory),
+        score: dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory),
         survivalSec: this.runSummary.elapsed,
         kills: this.runSummary.kills,
         victory: this.runSummary.victory,
@@ -281,10 +286,10 @@ export default class ResultsScene extends Phaser.Scene {
       [`${META_CURRENCY_NAME} earned`, this.metaReward === null ? '…' : `+${this.metaReward}`],
     ];
     if (this.runKind === 'challenge') {
-      const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory);
+      const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory);
       rows.push(['Score / Target', `${score} / ${this.runTarget ?? '—'}`]);
     } else if (this.runKind !== 'normal') {
-      rows.push(['Daily score', String(dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory))]);
+      rows.push(['Daily score', String(dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory))]);
     }
     const rowGap = rows.length > 6 ? 46 : 52;
     const left = cx - w / 2 + 40;
@@ -315,7 +320,7 @@ export default class ResultsScene extends Phaser.Scene {
     // Seed (Req 17.3), small text at the card's bottom. Daily runs show the
     // submission status here instead; tapping it retries a failed submit.
     if (this.runKind === 'challenge') {
-      const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory);
+      const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory);
       const target = this.runTarget ?? 0;
       this.add
         .text(
@@ -441,7 +446,7 @@ export default class ResultsScene extends Phaser.Scene {
     try {
       const session = getSession();
       const state = session.sim.state;
-      const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills, this.runSummary.victory);
+      const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory);
       const encoded = encodeChallenge({ v: 1, seed: state.seed >>> 0, score });
       const blob = await this.renderCardBlob(state.outcome === 'victory', score);
       let shared = false;
