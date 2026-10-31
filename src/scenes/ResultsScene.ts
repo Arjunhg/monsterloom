@@ -293,14 +293,13 @@ export default class ResultsScene extends Phaser.Scene {
       ['Parts built', String(parts.count)],
       [`${META_CURRENCY_NAME} earned`, this.metaReward === null ? '…' : `+${this.metaReward}`],
     ];
-    if (this.newBadges.length > 0) rows.push(['New badges', this.newBadges.join(', ')]);
     if (this.runKind === 'challenge') {
       const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory);
       rows.push(['Score / Target', `${score} / ${this.runTarget ?? '—'}`]);
     } else if (this.runKind !== 'normal') {
       rows.push(['Daily score', String(dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory))]);
     }
-    const rowGap = rows.length > 6 ? 46 : 52;
+    const rowGap = rows.length > 6 || this.newBadges.length > 0 ? 42 : 52;
     const left = cx - w / 2 + 40;
     const right = cx + w / 2 - 40;
     const labelStyle = { fontFamily: FONT, fontSize: '32px', color: PALETTE.textDim };
@@ -320,6 +319,15 @@ export default class ResultsScene extends Phaser.Scene {
       wordWrap: { width: w - 80 },
       lineSpacing: 4,
     };
+    if (this.newBadges.length > 0) {
+      const badgesText = this.add.text(left, y, `New badges: ${this.newBadges.join(' · ')}`, {
+        ...wrapStyle,
+        fontSize: '25px',
+        fontStyle: 'bold',
+        color: '#ffd166',
+      });
+      y += badgesText.height + 14;
+    }
     const partsText = this.add.text(left, y, parts.list, wrapStyle);
     y += partsText.height + 16;
     this.add.text(left, y, 'Mutations', labelStyle);

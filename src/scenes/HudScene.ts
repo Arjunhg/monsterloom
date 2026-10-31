@@ -338,7 +338,7 @@ export default class HudScene extends Phaser.Scene {
     this.frenzyFill = this.add.rectangle(0, 0, 10, 8, 0xff7a2f).setOrigin(0, 0);
     // Screen-edge glow while Frenzy is active (top, bottom, left, right).
     this.frenzyGlow = [0, 1, 2, 3].map(() =>
-      this.add.rectangle(0, 0, 10, 10, 0xff5a1f, 0).setOrigin(0, 0).setDepth(OVERLAY_DEPTH - 1),
+      this.add.rectangle(0, 0, 10, 10, 0xff5a1f, 1).setOrigin(0, 0).setDepth(OVERLAY_DEPTH - 1).setAlpha(0),
     );
 
     this.dawnIcon = this.add.graphics();
