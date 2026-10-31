@@ -17,7 +17,8 @@ import { bogKrakenGrabs, bogKrakenView } from '../sim/abilities/bogKraken';
 import { boneStormPulse } from '../sim/abilities/boneStorm';
 import { werewolfShockwave } from '../sim/abilities/werewolfFrenzy';
 import { ribcageBonePositions } from '../sim/abilities/ribcage';
-import { swampGutPuddle } from '../sim/abilities/swampGut';
+import { swampGutPuddle, swampGutPulse } from '../sim/abilities/swampGut';
+import { tentacleGrabs, tentacleView } from '../sim/abilities/tentacle';
 import type { SimContext } from '../sim/SimContext';
 
 const GHOST_COUNT = 6;
@@ -41,6 +42,8 @@ export class AbilityVisuals {
   private readonly ribIdx: number;
   private readonly swampIdx: number;
   private readonly batIdx: number;
+  private readonly tentacleIdx: number;
+  private readonly tentaclePos: number[] = [];
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -50,6 +53,7 @@ export class AbilityVisuals {
     this.ribIdx = parts.findIndex((p) => p.id === 'ribcage');
     this.swampIdx = parts.findIndex((p) => p.id === 'swamp_gut');
     this.batIdx = parts.findIndex((p) => p.id === 'bat_wings');
+    this.tentacleIdx = parts.findIndex((p) => p.id === 'tentacle');
     this.g = scene.add.graphics().setDepth(DEPTH.decal);
     this.glow = scene.add.graphics().setDepth(DEPTH.effect).setBlendMode(Phaser.BlendModes.ADD);
   }
@@ -66,8 +70,17 @@ export class AbilityVisuals {
     g.clear();
     glow.clear();
 
-    // Swamp puddle.
+    // Swamp pulse flash (every level) + puddle (L4+).
     if (this.swampIdx >= 0 && parts.has('swamp_gut')) {
+      const pulse = swampGutPulse(this.ctx, this.swampIdx);
+      if (pulse.active && pulse.radius > 0) {
+        const a = 1 - pulse.t01;
+        const r = pulse.radius * (0.55 + 0.45 * pulse.t01);
+        g.fillStyle(0x5fd35a, 0.3 * a);
+        g.fillCircle(rx, ry, r);
+        g.lineStyle(4, 0x9dff6a, 0.8 * a);
+        g.strokeCircle(rx, ry, r);
+      }
       const pd = swampGutPuddle(this.ctx, this.swampIdx);
       if (pd.active && pd.radius > 0) {
         const fade = Math.min(1, pd.timeLeft / 0.4);
@@ -121,6 +134,38 @@ export class AbilityVisuals {
       const a = gh.alpha - fade;
       if (a <= 0) gh.setVisible(false);
       else gh.setAlpha(a);
+    }
+
+    // Tentacle grab lashes (base part): wobbly purple lines to each grabbed enemy.
+    if (this.tentacleIdx >= 0 && parts.has('tentacle')) {
+      const tn = tentacleGrabs(this.ctx, this.tentacleIdx, this.tentaclePos);
+      if (tn > 0) {
+        const tv = tentacleView(this.ctx, this.tentacleIdx);
+        const a = 1 - tv.t01 * 0.7;
+        for (let i = 0; i < tn; i++) {
+          const tx = this.tentaclePos[2 * i] + ox;
+          const ty = this.tentaclePos[2 * i + 1] + oy;
+          const dx = tx - rx;
+          const dy = ty - ry;
+          const len = Math.hypot(dx, dy);
+          const nx = len > 1e-6 ? -dy / len : 0;
+          const ny = len > 1e-6 ? dx / len : 0;
+          for (let pass = 0; pass < 2; pass++) {
+            if (pass === 0) g.lineStyle(8, 0x6d2f8f, 0.85 * a);
+            else g.lineStyle(4, 0xb45ad8, 0.95 * a);
+            g.beginPath();
+            g.moveTo(rx, ry);
+            for (let k = 1; k <= TENTACLE_SEGMENTS; k++) {
+              const t = k / TENTACLE_SEGMENTS;
+              const w = Math.sin(t * Math.PI) * TENTACLE_WOBBLE_PX * Math.sin(timeMs * 0.02 + t * 7 + i * 2);
+              g.lineTo(rx + dx * t + nx * w, ry + dy * t + ny * w);
+            }
+            g.strokePath();
+          }
+          g.fillStyle(0xf0b8ff, 0.9 * a);
+          g.fillCircle(tx, ty, 5);
+        }
+      }
     }
 
     // Beholder beam.
