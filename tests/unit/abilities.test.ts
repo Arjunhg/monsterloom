@@ -6,7 +6,8 @@ import { partIndex } from '../../src/sim/entities';
 import { createParams, effectiveParams } from '../../src/sim/abilities/params';
 import { getAbility } from '../../src/sim/abilities/registry';
 import { ribcageBonePositions } from '../../src/sim/abilities/ribcage';
-import { swampGutPuddle } from '../../src/sim/abilities/swampGut';
+import { swampGutPuddle, swampGutPulse } from '../../src/sim/abilities/swampGut';
+import { tentacleGrabs, tentacleView } from '../../src/sim/abilities/tentacle';
 import { abilitySystem } from '../../src/sim/systems/AbilitySystem';
 import { projectileSystem } from '../../src/sim/systems/ProjectileSystem';
 import { damageSystem } from '../../src/sim/systems/DamageSystem';
@@ -169,6 +170,21 @@ describe('Tentacle', () => {
     step(ctx);
     expect(dealt(ctx, far)).toBeCloseTo(14);
   });
+
+  it('exposes a grab visual at L1 so the renderer can draw the lash', () => {
+    const { ctx, idx } = setup('tentacle', 1);
+    enemy(ctx, SHAMBLER, 100, 0);
+    const out: number[] = [];
+    expect(tentacleGrabs(ctx, idx, out)).toBe(0);
+    step(ctx);
+    expect(tentacleGrabs(ctx, idx, out)).toBe(1);
+    expect(out[0]).toBeCloseTo(100);
+    expect(out[1]).toBeCloseTo(0);
+    expect(tentacleView(ctx, idx).active).toBe(true);
+    step(ctx, 30); // 0.5 s > visual lifetime
+    expect(tentacleGrabs(ctx, idx, out)).toBe(0);
+    expect(tentacleView(ctx, idx).active).toBe(false);
+  });
 });
 
 describe('Bat Wings', () => {
@@ -255,6 +271,20 @@ describe('Swamp Gut', () => {
     expect(dealt(ctx, far)).toBe(0);
     expect(e.slowAmt[far]).toBe(0);
     expect(swampGutPuddle(ctx, partIndex(state, 'swamp_gut')).active).toBe(false);
+  });
+
+  it('exposes a pulse visual at L1 (before the L4 puddle exists)', () => {
+    const { ctx, idx } = setup('swamp_gut', 1); // radius 90, lingering 0
+    enemy(ctx, SHAMBLER, 50, 0);
+    expect(swampGutPulse(ctx, idx).active).toBe(false);
+    step(ctx);
+    const pulse = swampGutPulse(ctx, idx);
+    expect(pulse.active).toBe(true);
+    expect(pulse.radius).toBe(90);
+    expect(pulse.t01).toBeGreaterThanOrEqual(0);
+    expect(pulse.t01).toBeLessThan(1);
+    step(ctx, 30); // 0.5 s > visual lifetime, well before the next 3 s pulse
+    expect(swampGutPulse(ctx, idx).active).toBe(false);
   });
 
   it('L4 leaves a puddle that keeps slowing and damaging', () => {
