@@ -15,6 +15,7 @@ import { getSession, syncMetaBonuses, type RunMode } from '../game/Session';
 import { encodeChallenge } from '../meta/ChallengeLink';
 import { dailyScore, submitPendingDailyScore } from '../meta/DailyChallenge';
 import { META_CURRENCY_NAME } from '../meta/MetaProgression';
+import { cosmeticLookFor } from '../meta/Shop';
 import { getAudio } from '../juice/AudioManager';
 import { PlayerRenderer } from '../render/PlayerRenderer';
 import type { RunState } from '../sim/RunState';
@@ -126,7 +127,10 @@ export default class ResultsScene extends Phaser.Scene {
     pedestal.fillStyle(victory ? 0xffe2a8 : 0x3a2878, 0.6);
     pedestal.fillEllipse(cx, oy + PORTRAIT_Y + 112, 240, 44);
 
-    const portrait = new PlayerRenderer(this, state, { interactive: false });
+    const portrait = new PlayerRenderer(this, state, {
+      interactive: false,
+      cosmetic: cosmeticLookFor(session.meta.state),
+    });
     // sync() owns the inner container's scale (idle squash), so scale a wrapper instead.
     const frame = this.add.container(cx, oy + PORTRAIT_Y, [portrait.container]).setScale(PORTRAIT_SCALE);
     frame.setDepth(10);
@@ -509,7 +513,10 @@ export default class ResultsScene extends Phaser.Scene {
       rt.draw(title);
 
       // Static portrait of the final build (parts + mutations), scaled up.
-      const portrait = new PlayerRenderer(this, state, { interactive: false });
+      const portrait = new PlayerRenderer(this, state, {
+        interactive: false,
+        cosmetic: cosmeticLookFor(getSession().meta.state),
+      });
       portrait.container.setPosition(W / 2, 440).setScale(6);
       rt.draw(portrait.container);
       portrait.destroy();

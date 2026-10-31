@@ -1,0 +1,110 @@
+{
+  "items": [
+    {
+      "itemId": "cosmetic_skin_pumpkin",
+      "name": "Pumpkin Glow",
+      "description": "Warm orange body tint",
+      "category": "non_consumable",
+      "price": { "type": "bucks", "value": "100" },
+      "entitlements": [
+        { "entitlementId": "cosmetic_skin_pumpkin", "quantity": 1, "consumable": false }
+      ],
+      "unique": true,
+      "active": true,
+      "sortOrder": 1
+    },
+    {
+      "itemId": "cosmetic_skin_ghost",
+      "name": "Ghost Pale",
+      "description": "Pale spectral body tint",
+      "category": "non_consumable",
+      "price": { "type": "bucks", "value": "100" },
+      "entitlements": [
+        { "entitlementId": "cosmetic_skin_ghost", "quantity": 1, "consumable": false }
+      ],
+      "unique": true,
+      "active": true,
+      "sortOrder": 2
+    },
+    {
+      "itemId": "cosmetic_skin_toxic",
+      "name": "Toxic Glow",
+      "description": "Radioactive green body tint",
+      "category": "non_consumable",
+      "price": { "type": "bucks", "value": "100" },
+      "entitlements": [
+        { "entitlementId": "cosmetic_skin_toxic", "quantity": 1, "consumable": false }
+      ],
+      "unique": true,
+      "active": true,
+      "sortOrder": 3
+    },
+    {
+      "itemId": "cosmetic_rim_gold",
+      "name": "Golden Rim",
+      "description": "Gold outline glow",
+      "category": "non_consumable",
+      "price": { "type": "bucks", "value": "100" },
+      "entitlements": [
+        { "entitlementId": "cosmetic_rim_gold", "quantity": 1, "consumable": false }
+      ],
+      "unique": true,
+      "active": true,
+      "sortOrder": 4
+    },
+    {
+      "itemId": "cosmetic_rim_frost",
+      "name": "Frost Rim",
+      "description": "Icy blue outline glow",
+      "category": "non_consumable",
+      "price": { "type": "bucks", "value": "100" },
+      "entitlements": [
+        { "entitlementId": "cosmetic_rim_frost", "quantity": 1, "consumable": false }
+      ],
+      "unique": true,
+      "active": true,
+      "sortOrder": 5
+    },
+    {
+      "itemId": "cosmetic_rim_ember",
+      "name": "Ember Rim",
+      "description": "Burning orange outline glow",
+      "category": "non_consumable",
+      "price": { "type": "bucks", "value": "100" },
+      "entitlements": [
+        { "entitlementId": "cosmetic_rim_ember", "quantity": 1, "consumable": false }
+      ],
+      "unique": true,
+      "active": true,
+      "sortOrder": 6
+    },
+    {
+      "itemId": "cosmetic_premium_royal",
+      "name": "Royal Dread",
+      "description": "Premium: rose tint + gold rim",
+      "category": "non_consumable",
+      "price": { "type": "bucks", "value": "250" },
+      "entitlements": [
+        { "entitlementId": "cosmetic_premium_royal", "quantity": 1, "consumable": false }
+      ],
+      "unique": true,
+      "active": true,
+      "tags": ["premium"],
+      "sortOrder": 7
+    },
+    {
+      "itemId": "cosmetic_premium_void",
+      "name": "Void Walker",
+      "description": "Premium: teal tint + ember rim",
+      "category": "non_consumable",
+      "price": { "type": "bucks", "value": "250" },
+      "entitlements": [
+        { "entitlementId": "cosmetic_premium_void", "quantity": 1, "consumable": false }
+      ],
+      "unique": true,
+      "active": true,
+      "tags": ["premium"],
+      "sortOrder": 8
+    }
+  ]
+}

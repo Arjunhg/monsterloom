@@ -13,6 +13,7 @@ import Phaser from 'phaser';
 import { DEPTH, FONT, GAME_WIDTH, PALETTE, SCENE } from '../game/keys';
 import { fitCameraToCanvas } from '../game/layout';
 import { getSession, type Session } from '../game/Session';
+import { cosmeticLookFor } from '../meta/Shop';
 import { getAudio } from '../juice/AudioManager';
 import { JuiceSystem } from '../juice/JuiceSystem';
 import { AbilityVisuals } from '../render/AbilityVisuals';
@@ -93,7 +94,7 @@ export default class GameScene extends Phaser.Scene {
     this.entities = new EntityRenderer(this, state);
     this.telegraphs = new TelegraphRenderer(this, state);
     this.abilities = new AbilityVisuals(this, sim.ctx);
-    this.player = new PlayerRenderer(this, state);
+    this.player = new PlayerRenderer(this, state, { cosmetic: cosmeticLookFor(session.meta.state) });
     this.joystick = new JoystickView(this, session.input.joystickRadius);
     this.adapter = new InputAdapter(this);
     this.adapter.isOverHud = (x, y) =>

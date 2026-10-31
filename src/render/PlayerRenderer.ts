@@ -15,11 +15,14 @@
 import Phaser from 'phaser';
 import { DEPTH, PALETTE, TEX } from '../game/keys';
 import type { Anchor } from '../data/bodyParts';
+import type { CosmeticLook } from '../meta/Shop';
 import type { RunState } from '../sim/RunState';
 
 export interface PlayerRendererOptions {
   /** false = static portrait (ResultsScene). Default true. */
   interactive?: boolean;
+  /** Equipped cosmetic look (task 23). Visual only; never affects the sim. */
+  cosmetic?: CosmeticLook | null;
 }
 
 /** Body display width ≈ player radius × this. */
@@ -42,6 +45,7 @@ export class PlayerRenderer {
   private readonly slots: PartSlot[] = [];
   private baseScale = 1;
   private bodyTex = '';
+  private readonly cosmetic: CosmeticLook | null;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -49,6 +53,7 @@ export class PlayerRenderer {
     opts: PlayerRendererOptions = {},
   ) {
     this.interactive = opts.interactive ?? true;
+    this.cosmetic = opts.cosmetic ?? null;
     this.rim = scene.add.image(0, 0, '__WHITE');
     this.body = scene.add.image(0, 0, '__WHITE');
     this.container = scene.add.container(0, 0, [this.rim, this.body]).setDepth(DEPTH.player);
@@ -91,6 +96,8 @@ export class PlayerRenderer {
       const w = wanted[i];
       const key = this.scene.textures.exists(w.tex) ? w.tex : '__WHITE';
       if (img.texture.key !== key) img.setTexture(key);
+      if (this.cosmetic?.bodyTint !== undefined) img.setTint(this.cosmetic.bodyTint);
+      else img.clearTint();
       img.setVisible(true).setPosition(w.anchor.x, w.anchor.y).setRotation(w.anchor.rotation);
       this.slots.push({ img, anchor: w.anchor, phase: i * 1.7 });
     }
@@ -153,11 +160,12 @@ export class PlayerRenderer {
     this.bodyTex = key;
     if (this.body.texture.key !== key) this.body.setTexture(key);
     if (this.rim.texture.key !== key) this.rim.setTexture(key);
-    this.rim.setTintFill(PALETTE.playerRim).setScale(RIM_SCALE).setAlpha(0.9);
+    this.rim.setTintFill(this.cosmetic?.rimColor ?? PALETTE.playerRim).setScale(RIM_SCALE).setAlpha(0.9);
     const w = Math.max(1, this.body.frame.width);
     // Clamp so a tiny fallback texture doesn't blow the parts up.
     this.baseScale = Phaser.Math.Clamp((this.state.player.radius * BODY_SIZE_PER_RADIUS) / w, 0.5, 4);
     if (key === '__WHITE') this.body.setTint(0x7be07b);
+    else if (this.cosmetic?.bodyTint !== undefined) this.body.setTint(this.cosmetic.bodyTint);
     else this.body.clearTint();
   }
 }
