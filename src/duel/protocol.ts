@@ -62,6 +62,36 @@ export interface RivalLeftMessage {
   type: 'rivalLeft';
 }
 
+export interface DuelLobbyPlayer {
+  id: string;
+  username: string;
+  ready: boolean;
+}
+
+export type DuelPhase = 'idle' | 'connecting' | 'lobby' | 'playing' | 'done' | 'error';
+
+/** Transport-agnostic duel client surface (RUN realtime or PartyKit WS). */
+export interface DuelLike {
+  phase: DuelPhase;
+  roomCode: string;
+  youId: string;
+  players: DuelLobbyPlayer[];
+  rival: DuelProgress | null;
+  rivalFinal: DuelFinal | null;
+  verdict: 'win' | 'lose' | 'draw' | null;
+  forfeit: boolean;
+  rivalLeft: boolean;
+  error: string;
+  readonly rivalName: string;
+  create(): Promise<boolean>;
+  join(code: string): Promise<boolean>;
+  whenStarted(): Promise<number>;
+  ready(): void;
+  sendProgress(progress: DuelProgress): void;
+  sendFinished(final: DuelFinal): void;
+  leave(): void;
+}
+
 export type DuelProtocol =
   | ReadyMessage
   | ProgressMessage

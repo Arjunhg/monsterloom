@@ -11,7 +11,7 @@ import { MetaProgression } from '../meta/MetaProgression';
 import type { PlatformService } from '../platform/PlatformService';
 import { InputManager } from '../sim/input/InputManager';
 import { Sim } from '../sim/Sim';
-import type { DuelClient } from '../duel/DuelClient';
+import type { DuelLike } from '../duel/protocol';
 
 export interface Settings {
   musicMuted: boolean;
@@ -44,7 +44,7 @@ export interface Session {
   /** Resolves once launch params were read and any challenge payload decoded. */
   readonly challengeReady: Promise<void>;
   /** Live Duel Night client while a duel lobby/run is active, else null. */
-  duel: DuelClient | null;
+  duel: DuelLike | null;
   readonly input: InputManager;
   /** Kept for the whole session (Req 18.6). */
   readonly settings: Settings;

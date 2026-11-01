@@ -4,22 +4,18 @@
  * scenes poll each frame — no Phaser types leak in here.
  */
 import RundotGameAPI from '@series-inc/rundot-game-sdk/api';
+import { WsDuelClient } from './WsDuelClient';
 import {
   DUEL_ROOM_TYPE,
   type DuelFinal,
+  type DuelLike,
+  type DuelLobbyPlayer,
+  type DuelPhase,
   type DuelProgress,
   type DuelProtocol,
 } from './protocol';
 
-export type DuelPhase = 'idle' | 'connecting' | 'lobby' | 'playing' | 'done' | 'error';
-
-export interface DuelLobbyPlayer {
-  id: string;
-  username: string;
-  ready: boolean;
-}
-
-export class DuelClient {
+export class DuelClient implements DuelLike {
   phase: DuelPhase = 'idle';
   roomCode = '';
   youId = '';
@@ -147,4 +143,13 @@ export class DuelClient {
     this.rivalLeft = false;
     this.startWaiters = [];
   }
+}
+
+/**
+ * Picks the duel transport: PartyKit WebSocket when VITE_DUEL_WS_URL is set
+ * (standalone hosting such as Vercel, anonymous), else RUN realtime rooms.
+ */
+export function createDuelClient(): DuelLike {
+  const wsUrl = import.meta.env.VITE_DUEL_WS_URL as string | undefined;
+  return wsUrl ? new WsDuelClient(wsUrl) : new DuelClient();
 }

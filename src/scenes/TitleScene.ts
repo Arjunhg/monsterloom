@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+﻿import Phaser from 'phaser';
 import { getSession, syncMetaBonuses, type Settings } from '../game/Session';
 import { FONT, GAME_HEIGHT, GAME_WIDTH, PALETTE, SCENE, TEX } from '../game/keys';
 import {
@@ -19,7 +19,7 @@ import {
 import { COSMETICS, SHOP_SKUS, Shop, cosmeticDef } from '../meta/Shop';
 import { ACHIEVEMENTS, evaluateAchievements } from '../meta/Achievements';
 import { AchievementBanner } from '../render/AchievementBanner';
-import { DuelClient } from '../duel/DuelClient';
+import { createDuelClient } from '../duel/DuelClient';
 import type { ScoreEntry } from '../platform/PlatformService';
 import { columnLayout, onResizeSettled } from '../game/layout';
 import { getAudio } from '../juice/AudioManager';
@@ -48,7 +48,7 @@ const TOGGLES: ToggleDef[] = [
   },
 ];
 
-/** Title screen: start button + session settings toggles (Req 1.5, 18.6–18.7). */
+/** Title screen: start button + session settings toggles (Req 1.5, 18.6â€“18.7). */
 export default class TitleScene extends Phaser.Scene {
   private starting = false;
   private bonesText: Phaser.GameObjects.Text | null = null;
@@ -184,8 +184,8 @@ export default class TitleScene extends Phaser.Scene {
         metaLoadToastShown = true;
         this.showToast(
           outcome === 'invalid'
-            ? 'Saved progress was corrupted — starting fresh unlocks'
-            : "Couldn't load saved progress — will retry saving later",
+            ? 'Saved progress was corrupted â€” starting fresh unlocks'
+            : "Couldn't load saved progress â€” will retry saving later",
         );
       }
     });
@@ -270,15 +270,15 @@ export default class TitleScene extends Phaser.Scene {
 
   private rowSubText(def: UnlockDef): string {
     const state = getSession().meta.state;
-    if (def.kind === 'stat') return `Lv ${state.statBonuses[def.stat] ?? 0}/${MAX_STAT_BONUS_LEVEL} · ${def.description}`;
-    return state.unlocks.includes(def.id) ? 'Owned — equipped at night start' : def.description;
+    if (def.kind === 'stat') return `Lv ${state.statBonuses[def.stat] ?? 0}/${MAX_STAT_BONUS_LEVEL} Â· ${def.description}`;
+    return state.unlocks.includes(def.id) ? 'Owned â€” equipped at night start' : def.description;
   }
 
   /** Unlock screen (task 20.2): spend Bones on stat levels and starting parts. */
   private refreshDailyLabel(): void {
     const session = getSession();
     const ranked = session.daily.rankedAvailable(utcDateKey());
-    this.dailyButtonText?.setText(ranked ? 'Daily · Ranked' : 'Daily · Practice');
+    this.dailyButtonText?.setText(ranked ? 'Daily Â· Ranked' : 'Daily Â· Practice');
   }
 
   /** Starts the pending friend-challenge run with its encoded seed (Req 28.4). */
@@ -363,7 +363,7 @@ export default class TitleScene extends Phaser.Scene {
     );
     items.push(
       this.add
-        .text(cx, top + 122, 'Same night, two monsters.\nRace a friend to dawn — highest score wins.', {
+        .text(cx, top + 122, 'Same night, two monsters.\nRace a friend to dawn â€” highest score wins.', {
           fontFamily: FONT,
           fontSize: '24px',
           color: PALETTE.textDim,
@@ -432,7 +432,7 @@ export default class TitleScene extends Phaser.Scene {
 
   private async duelCreate(): Promise<void> {
     const session = getSession();
-    const duel = new DuelClient();
+    const duel = createDuelClient();
     session.duel = duel;
     this.refreshDuelPanel();
     const ok = await duel.create();
@@ -474,7 +474,7 @@ export default class TitleScene extends Phaser.Scene {
     const code = await this.promptRoomCode();
     if (!code || !this.duelPanel) return;
     const session = getSession();
-    const duel = new DuelClient();
+    const duel = createDuelClient();
     session.duel = duel;
     this.refreshDuelPanel();
     const ok = await duel.join(code);
@@ -492,16 +492,16 @@ export default class TitleScene extends Phaser.Scene {
       return;
     }
     this.duelCode.setText(duel.roomCode || '');
-    if (duel.phase === 'connecting') this.duelStatus.setText('Connecting…');
+    if (duel.phase === 'connecting') this.duelStatus.setText('Connectingâ€¦');
     else if (duel.phase === 'error') this.duelStatus.setText(`Could not connect.\n${duel.error}`);
     else if (duel.phase === 'lobby') {
-      const lines = duel.players.map((p) => `${p.id === duel.youId ? 'You' : p.username}${p.ready ? ' — ready!' : ''}`);
+      const lines = duel.players.map((p) => `${p.id === duel.youId ? 'You' : p.username}${p.ready ? ' â€” ready!' : ''}`);
       this.duelStatus.setText(
         duel.players.length < 2
-          ? `Share the code above.\nWaiting for a rival…`
+          ? `Share the code above.\nWaiting for a rivalâ€¦`
           : `${lines.join('\n')}\nBoth tap "I'm Ready!" to start.`,
       );
-    } else if (duel.phase === 'playing') this.duelStatus.setText('Duel starting…');
+    } else if (duel.phase === 'playing') this.duelStatus.setText('Duel startingâ€¦');
   }
 
   private startDuelRun(seed: number): void {
@@ -570,7 +570,7 @@ export default class TitleScene extends Phaser.Scene {
         .setOrigin(0.5),
     );
     // Tabs (task 23): Power (Bones unlocks), Looks (cosmetics via Bones +
-    // equip), Shop (real payments — only where payments are supported, 29.5).
+    // equip), Shop (real payments â€” only where payments are supported, 29.5).
     const shop = this.getShop();
     const tabs: Array<{ id: 'power' | 'looks' | 'shop'; label: string }> = [
       { id: 'power', label: 'Power' },
@@ -650,7 +650,7 @@ export default class TitleScene extends Phaser.Scene {
     };
     const saveMeta = (): void => {
       void session.meta.flush().then((ok) => {
-        if (!ok && this.scene.isActive(SCENE.title)) this.showToast("Couldn't save — will retry next run");
+        if (!ok && this.scene.isActive(SCENE.title)) this.showToast("Couldn't save â€” will retry next run");
       });
     };
 
@@ -701,7 +701,7 @@ export default class TitleScene extends Phaser.Scene {
         syncMetaBonuses(session);
         this.refreshBones();
         void session.meta.flush().then((ok) => {
-          if (!ok && this.scene.isActive(SCENE.title)) this.showToast("Couldn't save unlock — will retry next run");
+          if (!ok && this.scene.isActive(SCENE.title)) this.showToast("Couldn't save unlock â€” will retry next run");
         });
       });
       items.push(zone);
@@ -733,7 +733,7 @@ export default class TitleScene extends Phaser.Scene {
               if (shop.paymentsEnabled()) {
                 this.unlockTab = 'shop';
               } else {
-                this.showToast('Premium look — only in the Shop');
+                this.showToast('Premium look â€” only in the Shop');
                 return;
               }
             } else if (shop.buyWithBones(def.id)) {
@@ -757,7 +757,7 @@ export default class TitleScene extends Phaser.Scene {
           top + 242 + i * 94,
           def?.name ?? sku.sku,
           def?.description ?? '',
-          owned ? 'Owned' : buying ? '…' : sku.priceLabel,
+          owned ? 'Owned' : buying ? 'â€¦' : sku.priceLabel,
           owned ? '#9fe8a8' : '#ffd166',
           !owned && !buying,
           () => {
@@ -773,7 +773,7 @@ export default class TitleScene extends Phaser.Scene {
                 this.showToast(`Unlocked: ${def?.name ?? 'cosmetic'}`);
                 this.checkShopAchievement();
               } else if (res === 'cancelled') this.showToast('Purchase cancelled');
-              else this.showToast("Purchase didn't go through — try again");
+              else this.showToast("Purchase didn't go through â€” try again");
               this.refreshBones();
             });
           },
@@ -901,7 +901,7 @@ export default class TitleScene extends Phaser.Scene {
 
     const view = this.lbView;
     if (view.kind === 'loading') {
-      addText(top + 420, 'Loading scores…', '30px', PALETTE.text);
+      addText(top + 420, 'Loading scoresâ€¦', '30px', PALETTE.text);
     } else if (view.kind === 'error') {
       addText(top + 400, "Couldn't load the leaderboard.", '30px', PALETTE.text);
       addText(top + 452, 'Check your connection and try again.', '24px', PALETTE.textDim);
@@ -925,7 +925,7 @@ export default class TitleScene extends Phaser.Scene {
     if (view.kind === 'ready') {
       addText(
         top + 920,
-        view.me ? `You: #${view.me.rank} · ${view.me.score}` : 'You: not ranked yet today',
+        view.me ? `You: #${view.me.rank} Â· ${view.me.score}` : 'You: not ranked yet today',
         '30px',
         '#ffd166',
         true,
@@ -985,14 +985,14 @@ export default class TitleScene extends Phaser.Scene {
       const outcome = await submitPendingDailyScore(session.platform, session.daily);
       if (!this.scene.isActive(SCENE.title)) return;
       if (outcome?.accepted) {
-        this.showToast(outcome.rank ? `Score submitted · Rank #${outcome.rank}` : 'Score submitted');
+        this.showToast(outcome.rank ? `Score submitted Â· Rank #${outcome.rank}` : 'Score submitted');
         void this.loadLeaderboard();
       } else {
-        this.showToast(outcome?.reason ? `Not recorded: ${outcome.reason}` : "Couldn't submit score — try again");
+        this.showToast(outcome?.reason ? `Not recorded: ${outcome.reason}` : "Couldn't submit score â€” try again");
         if (this.lbPanel) this.buildLeaderboardPanel();
       }
     } catch {
-      if (this.scene.isActive(SCENE.title)) this.showToast("Couldn't submit score — try again");
+      if (this.scene.isActive(SCENE.title)) this.showToast("Couldn't submit score â€” try again");
     }
   }
 
