@@ -14,6 +14,7 @@ import { DEPTH, FONT, GAME_WIDTH, PALETTE, SCENE } from '../game/keys';
 import { fitCameraToCanvas } from '../game/layout';
 import { getSession, type Session } from '../game/Session';
 import { cosmeticLookFor } from '../meta/Shop';
+import { dailyScore } from '../meta/DailyChallenge';
 import { getAudio } from '../juice/AudioManager';
 import { JuiceSystem } from '../juice/JuiceSystem';
 import { AbilityVisuals } from '../render/AbilityVisuals';
@@ -57,6 +58,8 @@ export default class GameScene extends Phaser.Scene {
   private devLoadout: DevLoadout | null = null;
   private resultsTimerMs = -1;
   private goingToResults = false;
+  private duelSendAccumMs = 0;
+  private duelFinishSent = false;
   private upgradeLaunchGuard = 0;
   private autoPaused = false;
   private broken = false;
@@ -72,6 +75,8 @@ export default class GameScene extends Phaser.Scene {
     // Phaser reuses the scene instance across restarts: reset all per-run fields here.
     this.resultsTimerMs = -1;
     this.goingToResults = false;
+    this.duelSendAccumMs = 0;
+    this.duelFinishSent = false;
     this.upgradeLaunchGuard = 0;
     this.autoPaused = false;
     this.broken = false;
@@ -187,6 +192,32 @@ export default class GameScene extends Phaser.Scene {
         this.scene.bringToTop(SCENE.upgrade);
         // scene.launch is queued; don't re-launch before it has actually started.
         this.upgradeLaunchGuard = 2;
+      }
+    }
+
+    // 6b. Duel Night: stream progress to the rival; report the finish once.
+    const duel = session.duel;
+    if (duel && session.runMode === 'duel') {
+      this.duelSendAccumMs += delta;
+      if (this.duelSendAccumMs >= 500) {
+        this.duelSendAccumMs = 0;
+        duel.sendProgress({
+          elapsed: state.clock.elapsed,
+          kills: state.stats.kills,
+          score: dailyScore(state.clock.elapsed, state.stats.kills + state.stats.bonusKills, state.outcome === 'victory'),
+          hp: Math.max(0, Math.ceil(state.player.hp)),
+          maxHp: Math.ceil(state.player.maxHp),
+          level: state.energy.levelUps,
+        });
+      }
+      if (state.outcome !== null && !this.duelFinishSent) {
+        this.duelFinishSent = true;
+        duel.sendFinished({
+          victory: state.outcome === 'victory',
+          elapsed: state.clock.elapsed,
+          kills: state.stats.kills,
+          score: dailyScore(state.clock.elapsed, state.stats.kills + state.stats.bonusKills, state.outcome === 'victory'),
+        });
       }
     }
 

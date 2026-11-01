@@ -1,0 +1,9 @@
+{
+  "rooms": [
+    {
+      "type": "duel-night",
+      "file": "src/rooms/DuelNight.ts",
+      "config": { "maxPlayers": 2, "allowReconnect": true, "reconnectTimeout": 30 }
+    }
+  ]
+}

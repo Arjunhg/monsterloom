@@ -152,6 +152,8 @@ export default class HudScene extends Phaser.Scene {
   /** Friend-challenge target line (task 22), visible only in challenge runs. */
   private targetText!: Phaser.GameObjects.Text;
   private targetBeaten = false;
+  /** Duel Night rival line (multiplayer), visible only in duel runs. */
+  private duelText!: Phaser.GameObjects.Text;
   private partRow!: Phaser.GameObjects.Container;
   private pauseBg!: Phaser.GameObjects.Rectangle;
   private pauseIcon!: Phaser.GameObjects.Image;
@@ -284,6 +286,21 @@ export default class HudScene extends Phaser.Scene {
       this.targetText.setVisible(false);
     }
 
+    // Duel Night: live rival progress.
+    const duel = this.session.runMode === 'duel' ? this.session.duel : null;
+    if (duel) {
+      if (!this.duelText.visible) this.duelText.setVisible(true);
+      const mine = dailyScore(state.clock.elapsed, state.stats.kills + state.stats.bonusKills, state.outcome === 'victory');
+      const rival = duel.rivalFinal
+        ? `${duel.rivalFinal.score} (finished)`
+        : duel.rival
+          ? `${duel.rival.score} · ♥${duel.rival.hp}`
+          : '…';
+      setTextIfChanged(this.duelText, `DUEL  You ${mine} · ${duel.rivalName} ${rival}`);
+    } else if (this.duelText.visible) {
+      this.duelText.setVisible(false);
+    }
+
     // Part row safety net (e.g. sim restarted while the HUD stayed alive).
     const size = state.build.parts.size * 100 + state.build.mutations.size;
     if (size !== this.lastBuildSize) this.rebuildPartRow();
@@ -345,6 +362,7 @@ export default class HudScene extends Phaser.Scene {
     this.timeText = this.add.text(0, 0, '', this.textStyle(30)).setOrigin(0, 0.5);
     this.killText = this.add.text(0, 0, '', this.textStyle(30)).setOrigin(1, 0.5);
     this.targetText = this.add.text(0, 0, '', this.textStyle(26, '#ffd166')).setOrigin(1, 0).setVisible(false);
+    this.duelText = this.add.text(0, 0, '', this.textStyle(26, '#7be0ff')).setOrigin(1, 0).setVisible(false);
 
     this.partRow = this.add.container(0, 0);
 
@@ -544,6 +562,7 @@ export default class HudScene extends Phaser.Scene {
 
     const pauseX = W - R - PAUSE_SIZE;
     this.targetText.setPosition(W - R, T + PAUSE_SIZE + 10);
+    this.duelText.setPosition(W - R, T + PAUSE_SIZE + 10);
     this.pauseBg.setPosition(pauseX, T);
     this.pauseIcon.setPosition(pauseX + PAUSE_SIZE / 2, T + PAUSE_SIZE / 2);
 
