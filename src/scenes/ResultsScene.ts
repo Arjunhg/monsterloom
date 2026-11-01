@@ -57,6 +57,8 @@ export default class ResultsScene extends Phaser.Scene {
   /** Achievement names unlocked by this run (Req 32), shown on the card. */
   private newBadges: string[] = [];
   private achievementBanner: AchievementBanner | null = null;
+  private duelValueText: Phaser.GameObjects.Text | null = null;
+  private duelPoll: Phaser.Time.TimerEvent | null = null;
   private bonesValueText: Phaser.GameObjects.Text | null = null;
   /** Finished-run stats snapshot, taken at create so a fast restart can't skew the reward. */
   private runSummary = { elapsed: 0, kills: 0, bonusKills: 0, surgeKills: 0, victory: false };
@@ -86,6 +88,9 @@ export default class ResultsScene extends Phaser.Scene {
     this.bonesValueText = null;
     this.dailyStatusText = null;
     this.achievementBanner = null;
+    this.duelValueText = null;
+    this.duelPoll?.remove(false);
+    this.duelPoll = null;
     if (!relayout) {
       this.metaReward = null;
       this.newBadges = [];
@@ -174,6 +179,15 @@ export default class ResultsScene extends Phaser.Scene {
     }
 
     this.drawStatsCard(state, victory);
+    if (this.runKind === 'duel' && !relayout) {
+      this.duelPoll = this.time.addEvent({
+        delay: 400,
+        loop: true,
+        callback: () => {
+          if (this.duelValueText) this.duelValueText.setText(this.duelVerdictText());
+        },
+      });
+    }
 
     // Buttons.
     this.makeButton(cx, oy + 1312, 480, BUTTON_H, 'Another night', '50px', () => this.anotherNight());
@@ -296,6 +310,8 @@ export default class ResultsScene extends Phaser.Scene {
     if (this.runKind === 'challenge') {
       const score = dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory);
       rows.push(['Score / Target', `${score} / ${this.runTarget ?? '—'}`]);
+    } else if (this.runKind === 'duel') {
+      rows.push(['Duel result', this.duelVerdictText()]);
     } else if (this.runKind !== 'normal') {
       rows.push(['Daily score', String(dailyScore(this.runSummary.elapsed, this.runSummary.kills + this.runSummary.bonusKills, this.runSummary.victory))]);
     }
@@ -309,6 +325,7 @@ export default class ResultsScene extends Phaser.Scene {
       this.add.text(left, y, label, labelStyle);
       const valueText = this.add.text(right, y, value, valueStyle).setOrigin(1, 0);
       if (label === `${META_CURRENCY_NAME} earned`) this.bonesValueText = valueText;
+      if (label === 'Duel result') this.duelValueText = valueText;
       y += rowGap;
     }
 
@@ -347,7 +364,7 @@ export default class ResultsScene extends Phaser.Scene {
           { fontFamily: FONT, fontSize: '22px', color: score >= target ? '#9fe8a8' : PALETTE.textDim, align: 'center', wordWrap: { width: w - 40 } },
         )
         .setOrigin(0.5, 1);
-    } else if (this.runKind === 'normal') {
+    } else if (this.runKind === 'normal' || this.runKind === 'duel') {
       this.add
         .text(cx, top + h - 20, `Seed ${state.seed}`, { fontFamily: FONT, fontSize: '22px', color: PALETTE.textDim })
         .setOrigin(0.5, 1);
@@ -658,11 +675,22 @@ export default class ResultsScene extends Phaser.Scene {
     }
   }
 
+  private duelVerdictText(): string {
+    const duel = getSession().duel;
+    if (!duel) return '—';
+    if (duel.verdict === 'win') return duel.forfeit ? 'Rival fled — YOU WIN' : 'YOU WIN';
+    if (duel.verdict === 'lose') return `${duel.rivalName} wins`;
+    if (duel.verdict === 'draw') return 'Draw!';
+    return duel.rivalFinal ? '…' : 'Waiting for rival…';
+  }
+
   private anotherNight(): void {
     if (!this.canAct()) return;
     this.leaving = true;
     this.click();
     const session = getSession();
+    session.duel?.leave();
+    session.duel = null;
     // Another Night is always a normal run: restore meta bonuses and seed.
     session.runMode = 'normal';
     session.dailyDate = null;
@@ -679,6 +707,9 @@ export default class ResultsScene extends Phaser.Scene {
     if (!this.canAct()) return;
     this.leaving = true;
     this.click();
+    const session = getSession();
+    session.duel?.leave();
+    session.duel = null;
     this.scene.start(SCENE.title);
   }
 

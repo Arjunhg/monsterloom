@@ -11,6 +11,7 @@ import { MetaProgression } from '../meta/MetaProgression';
 import type { PlatformService } from '../platform/PlatformService';
 import { InputManager } from '../sim/input/InputManager';
 import { Sim } from '../sim/Sim';
+import type { DuelClient } from '../duel/DuelClient';
 
 export interface Settings {
   musicMuted: boolean;
@@ -19,7 +20,7 @@ export interface Settings {
 }
 
 /** Which kind of run is (or was last) in progress. Daily runs disable meta stat bonuses. */
-export type RunMode = 'normal' | 'daily-ranked' | 'daily-practice' | 'challenge';
+export type RunMode = 'normal' | 'daily-ranked' | 'daily-practice' | 'challenge' | 'duel';
 
 export interface Session {
   readonly platform: PlatformService;
@@ -42,6 +43,8 @@ export interface Session {
   challengeTarget: number | null;
   /** Resolves once launch params were read and any challenge payload decoded. */
   readonly challengeReady: Promise<void>;
+  /** Live Duel Night client while a duel lobby/run is active, else null. */
+  duel: DuelClient | null;
   readonly input: InputManager;
   /** Kept for the whole session (Req 18.6). */
   readonly settings: Settings;
@@ -124,6 +127,7 @@ export function initSession(platform: PlatformService): Session {
     pendingChallenge: null,
     challengeTarget: null,
     challengeReady,
+    duel: null,
     input: new InputManager(hasTouch),
     settings: { musicMuted: false, sfxMuted: false, shakeEnabled: true },
     flags,

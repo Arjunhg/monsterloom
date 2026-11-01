@@ -19,6 +19,7 @@ import {
 import { COSMETICS, SHOP_SKUS, Shop, cosmeticDef } from '../meta/Shop';
 import { ACHIEVEMENTS, evaluateAchievements } from '../meta/Achievements';
 import { AchievementBanner } from '../render/AchievementBanner';
+import { DuelClient } from '../duel/DuelClient';
 import type { ScoreEntry } from '../platform/PlatformService';
 import { columnLayout, onResizeSettled } from '../game/layout';
 import { getAudio } from '../juice/AudioManager';
@@ -53,6 +54,10 @@ export default class TitleScene extends Phaser.Scene {
   private bonesText: Phaser.GameObjects.Text | null = null;
   private badgesText: Phaser.GameObjects.Text | null = null;
   private achievementBanner: AchievementBanner | null = null;
+  private duelPanel: Phaser.GameObjects.Container | null = null;
+  private duelStatus: Phaser.GameObjects.Text | null = null;
+  private duelCode: Phaser.GameObjects.Text | null = null;
+  private duelPoll: Phaser.Time.TimerEvent | null = null;
   private unlockPanel: Phaser.GameObjects.Container | null = null;
   private dailyButtonText: Phaser.GameObjects.Text | null = null;
   /** Unlocks panel tab: power unlocks, cosmetic looks, or the real-money shop (task 23). */
@@ -73,6 +78,11 @@ export default class TitleScene extends Phaser.Scene {
     this.starting = false;
     this.bonesText = null;
     this.achievementBanner = null;
+    this.duelPanel = null;
+    this.duelStatus = null;
+    this.duelCode = null;
+    this.duelPoll?.remove(false);
+    this.duelPoll = null;
     this.unlockPanel = null;
     this.dailyButtonText = null;
     this.lbPanel = null;
@@ -123,8 +133,9 @@ export default class TitleScene extends Phaser.Scene {
     // Start button (big tap target, Req 1.5).
     this.makeButton(cx, oy + 830, 460, 120, 'Start Night', '56px', () => this.startRun());
     this.dailyButtonText = this.makeButton(cx, oy + 950, 440, 92, 'Daily Challenge', '40px', () => this.startDaily());
-    this.makeButton(cx - 113, oy + 1062, 214, 84, 'Unlocks', '32px', () => this.openUnlocks());
-    this.makeButton(cx + 113, oy + 1062, 214, 84, 'Leaderboard', '32px', () => this.openLeaderboard());
+    this.makeButton(cx - 226, oy + 1062, 214, 84, 'Unlocks', '32px', () => this.openUnlocks());
+    this.makeButton(cx, oy + 1062, 214, 84, 'Duel Night', '32px', () => this.openDuel());
+    this.makeButton(cx + 226, oy + 1062, 214, 84, 'Leaderboard', '32px', () => this.openLeaderboard());
 
     // Settings toggles.
     const settings = getSession().settings;
@@ -321,6 +332,208 @@ export default class TitleScene extends Phaser.Scene {
       }
       this.scene.start(SCENE.game);
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Duel Night (multiplayer ghost race)
+  // ---------------------------------------------------------------------------
+
+  private openDuel(): void {
+    if (this.duelPanel || this.starting) return;
+    this.closeUnlocks();
+    this.closeLeaderboard();
+    const { width: W, height: H } = columnLayout(this);
+    const cx = W / 2;
+    const panelW = 640;
+    const panelH = 860;
+    const top = H / 2 - panelH / 2;
+    const items: Phaser.GameObjects.GameObject[] = [];
+
+    items.push(this.add.rectangle(cx, H / 2, W, H, 0x000000, 0.72).setInteractive());
+    const plate = this.add.graphics();
+    plate.fillStyle(0x241442, 1);
+    plate.fillRoundedRect(cx - panelW / 2, top, panelW, panelH, 28);
+    plate.lineStyle(4, PALETTE.playerRim, 0.8);
+    plate.strokeRoundedRect(cx - panelW / 2, top, panelW, panelH, 28);
+    items.push(plate);
+    items.push(
+      this.add
+        .text(cx, top + 56, 'Duel Night', { fontFamily: FONT, fontSize: '48px', fontStyle: 'bold', color: PALETTE.text })
+        .setOrigin(0.5),
+    );
+    items.push(
+      this.add
+        .text(cx, top + 122, 'Same night, two monsters.\nRace a friend to dawn — highest score wins.', {
+          fontFamily: FONT,
+          fontSize: '24px',
+          color: PALETTE.textDim,
+          align: 'center',
+        })
+        .setOrigin(0.5),
+    );
+    this.duelCode = this.add
+      .text(cx, top + 228, '', { fontFamily: FONT, fontSize: '64px', fontStyle: 'bold', color: '#ffd166' })
+      .setOrigin(0.5);
+    items.push(this.duelCode);
+    this.duelStatus = this.add
+      .text(cx, top + 302, 'Create a room or join with a code.', {
+        fontFamily: FONT,
+        fontSize: '26px',
+        color: PALETTE.text,
+        align: 'center',
+        wordWrap: { width: panelW - 70 },
+      })
+      .setOrigin(0.5, 0);
+    items.push(this.duelStatus);
+
+    const addPanelButton = (y: number, label: string, onTap: () => void): void => {
+      const bw = 420;
+      const bh = 88;
+      const g = this.add.graphics();
+      g.fillStyle(0x3a2878, 1);
+      g.fillRoundedRect(cx - bw / 2, y - bh / 2, bw, bh, 20);
+      g.lineStyle(4, PALETTE.playerRim, 0.8);
+      g.strokeRoundedRect(cx - bw / 2, y - bh / 2, bw, bh, 20);
+      items.push(g);
+      items.push(
+        this.add.text(cx, y, label, { fontFamily: FONT, fontSize: '34px', fontStyle: 'bold', color: PALETTE.text }).setOrigin(0.5),
+      );
+      const zone = this.add.zone(cx, y, bw, bh).setInteractive({ useHandCursor: true });
+      zone.on('pointerup', () => {
+        this.unlockAudio();
+        onTap();
+      });
+      items.push(zone);
+    };
+
+    addPanelButton(top + 470, 'Create Room', () => void this.duelCreate());
+    addPanelButton(top + 578, 'Join with Code', () => void this.duelJoin());
+    addPanelButton(top + 686, "I'm Ready!", () => getSession().duel?.ready());
+    addPanelButton(top + panelH - 70, 'Close', () => this.closeDuel());
+
+    this.duelPanel = this.add.container(0, 0, items).setDepth(100);
+    this.duelPoll = this.time.addEvent({ delay: 300, loop: true, callback: () => this.refreshDuelPanel() });
+    this.refreshDuelPanel();
+  }
+
+  private closeDuel(): void {
+    this.duelPoll?.remove(false);
+    this.duelPoll = null;
+    this.duelPanel?.destroy();
+    this.duelPanel = null;
+    this.duelStatus = null;
+    this.duelCode = null;
+    const session = getSession();
+    if (session.duel && session.duel.phase !== 'playing') {
+      session.duel.leave();
+      session.duel = null;
+    }
+  }
+
+  private async duelCreate(): Promise<void> {
+    const session = getSession();
+    const duel = new DuelClient();
+    session.duel = duel;
+    this.refreshDuelPanel();
+    const ok = await duel.create();
+    if (!this.scene.isActive(SCENE.title)) return;
+    if (ok) void duel.whenStarted().then((seed) => this.startDuelRun(seed));
+    this.refreshDuelPanel();
+  }
+
+  /** DOM code entry (window.prompt is sandbox-blocked in the RUN host). */
+  private promptRoomCode(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.maxLength = 6;
+      input.placeholder = 'ROOM CODE';
+      input.autocomplete = 'off';
+      input.setAttribute('autocapitalize', 'characters');
+      input.style.cssText =
+        'position:fixed;left:50%;top:26%;transform:translate(-50%,-50%);z-index:9999;width:min(420px,80vw);padding:16px 18px;font-size:28px;font-weight:700;letter-spacing:6px;text-align:center;text-transform:uppercase;color:#ffd166;background:#160f2e;border:3px solid #ffd166;border-radius:14px;outline:none;';
+      document.body.appendChild(input);
+      input.focus();
+      let done = false;
+      const finish = (value: string | null): void => {
+        if (done) return;
+        done = true;
+        input.remove();
+        resolve(value);
+      };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') finish(input.value.trim() || null);
+        else if (e.key === 'Escape') finish(null);
+        e.stopPropagation();
+      });
+      input.addEventListener('blur', () => finish(input.value.trim() || null));
+    });
+  }
+
+  private async duelJoin(): Promise<void> {
+    const code = await this.promptRoomCode();
+    if (!code || !this.duelPanel) return;
+    const session = getSession();
+    const duel = new DuelClient();
+    session.duel = duel;
+    this.refreshDuelPanel();
+    const ok = await duel.join(code);
+    if (!this.scene.isActive(SCENE.title)) return;
+    if (ok) void duel.whenStarted().then((seed) => this.startDuelRun(seed));
+    this.refreshDuelPanel();
+  }
+
+  private refreshDuelPanel(): void {
+    if (!this.duelPanel || !this.duelStatus || !this.duelCode) return;
+    const duel = getSession().duel;
+    if (!duel || duel.phase === 'idle') {
+      this.duelStatus.setText('Create a room or join with a code.');
+      this.duelCode.setText('');
+      return;
+    }
+    this.duelCode.setText(duel.roomCode || '');
+    if (duel.phase === 'connecting') this.duelStatus.setText('Connecting…');
+    else if (duel.phase === 'error') this.duelStatus.setText(`Could not connect.\n${duel.error}`);
+    else if (duel.phase === 'lobby') {
+      const lines = duel.players.map((p) => `${p.id === duel.youId ? 'You' : p.username}${p.ready ? ' — ready!' : ''}`);
+      this.duelStatus.setText(
+        duel.players.length < 2
+          ? `Share the code above.\nWaiting for a rival…`
+          : `${lines.join('\n')}\nBoth tap "I'm Ready!" to start.`,
+      );
+    } else if (duel.phase === 'playing') this.duelStatus.setText('Duel starting…');
+  }
+
+  private startDuelRun(seed: number): void {
+    if (this.starting || !this.scene.isActive(SCENE.title)) return;
+    this.starting = true;
+    const session = getSession();
+    this.closeDuelKeepClient();
+    void session.metaReady.then(() => {
+      session.runMode = 'duel';
+      session.dailyDate = null;
+      session.pendingChallenge = null;
+      session.challengeTarget = null;
+      // Fair duel: same conditions as Daily (starting parts stay, stat bonuses off).
+      session.sim.setBonuses({ startingPartIds: startingPartIdsFor(session.meta.state) });
+      session.sim.restart(seed);
+      session.platform.track('duel_started', {});
+      if (!runStartedFired) {
+        runStartedFired = true;
+        session.platform.funnel(3, 'run_started', 'boot', 1);
+      }
+      this.scene.start(SCENE.game);
+    });
+  }
+
+  /** Closes the panel without leaving the room (the run is starting). */
+  private closeDuelKeepClient(): void {
+    this.duelPoll?.remove(false);
+    this.duelPoll = null;
+    this.duelPanel?.destroy();
+    this.duelPanel = null;
+    this.duelStatus = null;
+    this.duelCode = null;
   }
 
   private openUnlocks(): void {

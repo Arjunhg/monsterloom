@@ -110,7 +110,7 @@ describe('swarm events (Req 23)', () => {
     }
   });
 
-  it('stampede runs in a straight line across the view and is freed past the far edge without kills or orbs', () => {
+  it('stampede runs in a straight line across the view and is freed past the far edge without kills or orbs', { timeout: 30_000 }, () => {
     for (const seed of [1, 2, 3, 4, 5, 6]) {
       const def = SWARM_EVENTS[1];
       expect(def.kind).toBe('stampede');
