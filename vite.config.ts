@@ -1,10 +1,10 @@
 import { defineConfig } from 'vite';
-import { rundotGameLibrariesPlugin } from "@series-inc/rundot-game-sdk/vite";
+import { rundotGameLibrariesPlugin, rundotMultiplayerPlugin } from "@series-inc/rundot-game-sdk/vite";
 
 // CDN assets in cdn/ folder are automatically served in dev mode
 
 export default defineConfig({
-  plugins: [rundotGameLibrariesPlugin()],
+  plugins: [rundotGameLibrariesPlugin(), rundotMultiplayerPlugin()],
   base: "./",
   server: {
     allowedHosts: true,
